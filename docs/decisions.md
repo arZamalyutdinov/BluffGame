@@ -14,6 +14,8 @@ Initial planning baseline recorded on March 14, 2026.
 - Skip database work, authentication, and social systems for the initial build.
 - Resolve showdowns by checking whether the exact spoken claim can be formed from the revealed shared pool.
 - Use `diamonds < clubs < hearts < spades` as the suit priority order for suit-based claims.
+- Ship the first playable slice with session-token reconnect support.
+- Returning from a finished match sends the room back to the lobby while keeping the same room code.
 
 ## Working Assumptions
 
@@ -21,12 +23,12 @@ Initial planning baseline recorded on March 14, 2026.
 - Each round uses a fresh shuffle and a fresh deal.
 - The loser of a showdown is the only player whose future `handSize` changes.
 - The next round starter rotates from the previous round's starter, not from the previous round's loser or winner.
+- A disconnect does not auto-remove a player from an active match; their seat is held for reconnect.
+- Explicit leave is only supported outside an active match in v1.
 
 ## Deferred Decisions
 
-- Whether reconnect support ships in the first playable slice or comes immediately after.
 - Whether the host can remove disconnected or idle players.
-- Whether rematch returns the room to lobby first or restarts directly.
 - Whether to add turn timers once the base loop feels good.
 - Whether to expose claim suggestions in the UI or keep players fully manual.
 

@@ -1,0 +1,14 @@
+{
+  "name": "bluff-game",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @bluff-game/server --filter @bluff-game/web run dev",
+    "typecheck": "pnpm -r run typecheck",
+    "test": "pnpm --filter @bluff-game/shared run test",
+    "lint": "biome check ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4"
+  }
+}

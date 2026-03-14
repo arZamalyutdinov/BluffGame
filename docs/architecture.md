@@ -228,11 +228,10 @@ The server may collapse some internal phases into simpler snapshots, but the dom
 - Single-process server with in-memory rooms.
 - Max room size should stay small enough to fit one 52-card deck comfortably; `2` to `8` players is the recommended v1 range.
 - Crash or deploy restarts wipe active rooms.
-- Disconnect handling can start simple, but the architecture should leave room for session-token reconnect support.
+- Disconnects keep the player's seat reserved and rely on session-token reconnect support; active matches do not auto-remove or auto-forfeit disconnected players in v1.
+- `restart_match` returns the room to the lobby while keeping the same room code and player list.
 
 ## Open Decisions to Revisit
 
-- Exact disconnect policy during an active round.
 - Whether the host can kick inactive players in v1.
-- Whether rematches reuse the same room code automatically or return to lobby first.
 - Whether to add turn timers after the core loop is stable.
