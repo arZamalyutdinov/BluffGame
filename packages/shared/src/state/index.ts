@@ -7,6 +7,7 @@ export type RoomPhase = 'lobby' | 'in-match' | 'match-complete';
 export type MatchPhase =
   | 'awaiting-opening-claim'
   | 'awaiting-response'
+  | 'showing-result'
   | 'match-complete';
 
 export const MAX_CHAT_MESSAGE_LENGTH = 280;

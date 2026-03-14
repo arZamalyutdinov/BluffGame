@@ -107,11 +107,12 @@ React is the right choice for the browser client, but the authoritative game ser
 6. At the start of each round, the server shuffles a standard 52-card deck and deals each active player a number of cards equal to their current `handSize`.
 7. The round starter makes the opening claim.
 8. The server starts an authoritative timer for the active turn.
-9. Each next active player clockwise either raises the claim or challenges it before that timer expires.
-10. A challenge triggers showdown: all round cards are revealed, the server checks whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
-11. If the timer expires first, the active player loses the round automatically and the server advances using the same penalty progression.
-12. The round ends immediately after showdown or timeout, the deck is discarded, and the next round begins from the next eligible starter.
-13. The match ends when only one active player remains.
+9. Each next active player clockwise either raises the claim or checks it before that timer expires.
+10. A check reveals all round cards, the server evaluates whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
+11. If the timer expires first, the active player loses the round automatically and the server applies the same penalty progression.
+12. After either outcome, the server enters a non-interactive `showing-result` hold: the result overlay stays open, no player or bot actions are accepted, and no turn timer runs.
+13. When that result hold ends, the deck is discarded, the next round begins from the next eligible starter, and the next turn timer starts.
+14. The match ends when only one active player remains.
 
 ## Backend Design
 
@@ -163,7 +164,7 @@ Each room should process one command at a time through a serialized queue. This 
 - Home: create or join a room.
 - Lobby: show seats, readiness, host controls, room settings, optional bot
   seats, and match start conditions.
-- Match table: show `Your hand`, `Selected claim`, and `Claim to beat` in that order as a unified top play strip with exactly matched panel widths. Keep an always-visible `Check` action close to the claim-to-beat panel, but outside the panel itself, then place the claim composer underneath as the control surface for the selected-claim panel. Keep a persistent side rail that houses room chat plus the live turn clock. The player table should be opened from a `Show table` control in the match header, slide in from the left, keep a stable player order, and render per-player claim history as compact card previews instead of plain text. On smartphones, keep only `Your hand` and `Claim to beat` in the stacked top strip, remove the separate `Selected claim` panel, move both the table and chat into on-demand slide-in panels controlled by `Show table` and `Show chat`, expand the exact rank/suit selectors directly under the active claim category instead of keeping one shared control block at the bottom, and place the submit action directly under those inline mobile selectors. The last showdown/timeout details can stay collapsed until opened.
+- Match table: show `Your hand`, `Selected claim`, and `Claim to beat` in that order as a unified top play strip with exactly matched panel widths. Keep an always-visible `Check` action close to the claim-to-beat panel, but outside the panel itself, then place the claim composer underneath as the control surface for the selected-claim panel. On desktop, use two persistent side panels: a left player panel that keeps players visible in stable seat order and lets each row expand to show that player's played-hand history as compact card previews, plus a right chat panel that also houses the live turn clock. On smartphones, move both the table and chat into on-demand slide-in panels controlled by `Show table` and `Show chat`, keep only `Your hand` and `Claim to beat` in the stacked top strip, remove the separate `Selected claim` panel, expand the exact rank/suit selectors directly under the active claim category instead of keeping one shared control block at the bottom, and place the submit action directly under those inline mobile selectors. When a showdown or timeout resolves, show a server-owned animated overlay over the current table that reveals hands, attempts to construct the spoken claim from the revealed cards, and stays on screen until the server exits `showing-result`; on phones, that overlay should behave like a full-screen stacked sheet with the claim construction pinned ahead of the revealed player list.
 - Showdown summary: reveal cards, whether the spoken claim existed, loser, next-round starter, and remaining players.
 - Match result: winner banner and restart flow.
 
@@ -192,6 +193,7 @@ Each room should process one command at a time through a serialized queue. This 
 
 - `cards/`: suits, ranks, deck helpers, and shuffle utilities for tests.
 - `claims/`: claim categories, serialization, comparison, and display labels.
+- `resolution/`: shared timing constants and helpers for round-result display windows.
 - `rules/`: exact-claim evaluator, suit-aware claim validation, showdown outcome logic, and elimination helpers.
 - `protocol/`: command and event schemas, including chat commands and room snapshots.
 - `settings/`: room settings defaults, supported presets, and validation helpers.
@@ -238,7 +240,7 @@ Recommended room and match phases:
 - `dealing`
 - `awaiting-opening-claim`
 - `awaiting-response`
-- `showdown`
+- `showing-result`
 - paused turn timer as a property on the active match, not as a separate room phase
 - `match-complete`
 

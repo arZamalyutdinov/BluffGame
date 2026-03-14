@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   type Card,
   applyRoundLoss,
+  buildClaimConstruction,
   claimExists,
   claimToCompactLabel,
   compareClaims,
@@ -124,6 +125,67 @@ describe('claimExists', () => {
     expect(claimExists(cards, parseClaimKey('straight-flush:10:hearts'))).toBe(
       false,
     );
+  });
+});
+
+describe('buildClaimConstruction', () => {
+  it('returns the exact cards that satisfy a valid rank claim', () => {
+    const construction = buildClaimConstruction(
+      [card(9, 'spades'), card(9, 'hearts'), card(4, 'clubs')],
+      parseClaimKey('pair:9'),
+    );
+
+    expect(construction.isComplete).toBe(true);
+    expect(construction.requiredCount).toBe(2);
+    expect(construction.cards).toEqual([card(9, 'spades'), card(9, 'hearts')]);
+    expect(construction.slotCards).toEqual([
+      card(9, 'spades'),
+      card(9, 'hearts'),
+    ]);
+  });
+
+  it('returns a partial construction when the claim is missing cards', () => {
+    const construction = buildClaimConstruction(
+      [
+        card(14, 'clubs'),
+        card(2, 'spades'),
+        card(3, 'clubs'),
+        card(4, 'hearts'),
+      ],
+      parseClaimKey('straight:1'),
+    );
+
+    expect(construction.isComplete).toBe(false);
+    expect(construction.requiredCount).toBe(5);
+    expect(construction.cards).toEqual([
+      card(14, 'clubs'),
+      card(2, 'spades'),
+      card(3, 'clubs'),
+      card(4, 'hearts'),
+    ]);
+    expect(construction.slotCards).toEqual([
+      card(14, 'clubs'),
+      card(2, 'spades'),
+      card(3, 'clubs'),
+      card(4, 'hearts'),
+      undefined,
+    ]);
+  });
+
+  it('preserves the intended slot positions for partial grouped claims', () => {
+    const construction = buildClaimConstruction(
+      [card(6, 'spades'), card(3, 'hearts')],
+      parseClaimKey('two-pair:6:3'),
+    );
+
+    expect(construction.isComplete).toBe(false);
+    expect(construction.cards).toEqual([card(6, 'spades'), card(3, 'hearts')]);
+    expect(construction.slotCards).toEqual([
+      card(6, 'spades'),
+      undefined,
+      card(3, 'hearts'),
+      undefined,
+    ]);
   });
 });
 
