@@ -4,7 +4,7 @@
 
 - [x] Choose the workspace manager and scaffold the monorepo layout (`apps/web`, `apps/server`, `packages/shared`).
 - [x] Add shared TypeScript, linting, formatting, and testing configuration.
-- [ ] Add a lightweight CI check for typecheck, lint, and unit tests.
+- [x] Add a lightweight CI check for typecheck, lint, and unit tests.
 - [x] Expand the root README once the first code scaffolding exists.
 
 ## Phase 1: Shared Domain and Rules Engine
