@@ -68,9 +68,7 @@ export function RoomChat({
 
       <div ref={logRef} className="chat-log" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="chat-empty">
-            No messages yet. Use chat for table talk and coordination.
-          </div>
+          <div className="chat-empty">No messages yet.</div>
         ) : (
           messages.map((message) => {
             const isSelf = message.playerId === selfPlayerId;

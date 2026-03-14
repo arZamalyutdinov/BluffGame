@@ -7,20 +7,21 @@ import {
   RANK_LABELS,
   STRAIGHT_LOW_RANK_LABELS,
   SUIT_SYMBOLS,
+  claimToCompactLabel,
   claimToKey,
-  claimToLabel,
   compareClaims,
   getAllClaims,
   getClaimCategoryOrder,
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
-import { ClaimCardStack, ClaimPreviewPanel } from './ClaimPreview.js';
+import { ClaimCardStack } from './ClaimPreview.js';
 
 interface ClaimComposerProps {
   claimOrderPreset: ClaimOrderPreset;
   lastClaim?: Claim;
   disabled?: boolean;
+  onSelectedClaimChange?: (claim?: Claim) => void;
   onSubmit: (claimKey: string) => void;
 }
 
@@ -168,6 +169,7 @@ export function ClaimComposer({
   claimOrderPreset,
   lastClaim,
   disabled = false,
+  onSelectedClaimChange,
   onSubmit,
 }: ClaimComposerProps) {
   const categoryOrder = useMemo(
@@ -242,6 +244,10 @@ export function ClaimComposer({
     ) ?? selectedCategoryClaims[0];
   const minimumClaim = availableClaims[0];
 
+  useEffect(() => {
+    onSelectedClaimChange?.(selectedClaim);
+  }, [onSelectedClaimChange, selectedClaim]);
+
   if (availableClaims.length === 0) {
     return (
       <div className="composer-card muted-panel">
@@ -261,24 +267,11 @@ export function ClaimComposer({
         }
       }}
     >
-      <div className="claim-builder-header">
-        <div>
-          <p className="eyebrow composer-eyebrow">Your claim</p>
-          <p className="claim-helper-text">
-            Choose the hand category first, then set the exact rank or suit.
-          </p>
-        </div>
-
-        <ClaimPreviewPanel
-          label="Selected claim"
-          claim={selectedClaim}
-          emptyTitle="Pick a claim"
-          emptyText="Choose a category and shape the exact claim before submitting."
-          helperText={
-            lastClaim ? `Must beat ${claimToLabel(lastClaim)}.` : undefined
-          }
-          className="claim-selection-panel"
-        />
+      <div className="claim-builder-intro">
+        <p className="eyebrow composer-eyebrow">Build your claim</p>
+        <p className="claim-helper-text">
+          Choose the hand category first, then set the exact rank or suit.
+        </p>
       </div>
 
       <div className="claim-category-toolbar">
@@ -316,7 +309,8 @@ export function ClaimComposer({
       <div className="claim-builder-footer">
         {minimumClaim ? (
           <div className="claim-minimum-note">
-            Lowest legal raise: <strong>{claimToLabel(minimumClaim)}</strong>
+            Lowest legal raise:{' '}
+            <strong>{claimToCompactLabel(minimumClaim)}</strong>
           </div>
         ) : (
           <div className="claim-minimum-note">No raise options remain.</div>
