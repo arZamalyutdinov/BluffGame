@@ -97,7 +97,10 @@ It owns:
 
 - the in-memory `Map<string, RoomState>` of all active rooms
 - per-room turn timer handles
+- per-room bot turn handles
 - room/player/match/round internal state
+- bot seats with generated names
+- per-player bluff and timeout memory for bot decision-making
 - bounded per-room chat history
 - host assignment
 - session token validation
@@ -142,6 +145,7 @@ Important details:
 - each connected player gets a separate snapshot
 - `settings` are included on every room snapshot
 - `chatMessages` are included on every room snapshot
+- player rows include `isBot`
 - `turnTimer` is included while a match is active
 - `yourHand` only contains the viewer's own cards
 - public player rows include `cardCount`, not private card identities
@@ -198,6 +202,7 @@ If invalid:
 Implemented inbound commands:
 
 - `setReady`
+- `addBot`
 - `updateRoomSettings`
 - `startMatch`
 - `sendChatMessage`
@@ -223,6 +228,7 @@ snapshot event plus rejection messages.
 While `room.phase === 'lobby'`:
 
 - players can join
+- the host can add bots until the room reaches `8` seats
 - players can toggle ready state
 - the host can change room settings
 - duplicate display names are rejected per room
@@ -235,8 +241,8 @@ Room settings currently include:
 - `claimOrderPreset` with three supported presets
 - `turnTimeLimitSeconds` in the range `15` to `120`
 
-If the host changes any setting, the server resets all player ready states to
-`false`.
+If the host changes any setting, the server resets human player ready states to
+`false` and keeps bot players ready.
 
 The match only starts when:
 
@@ -274,6 +280,11 @@ higher according to `compareClaims` using the room's selected
 The server also owns the active turn timer. When a player acts successfully,
 the next turn receives a fresh full timer. The host can pause and resume that
 timer without changing the current turn owner.
+
+When the current turn belongs to a bot, the server also schedules a short
+autonomous bot action. The bot strategy uses only the bot's own hand, public
+claim history, public room state, and probability estimates over unseen cards.
+It does not read other hidden hands directly.
 
 ### Challenging
 
@@ -313,7 +324,8 @@ and resolves the timeout if needed.
 - same room code
 - same player list
 - back to `lobby`
-- ready states reset to `false`
+- human ready states reset to `false`
+- bot ready states stay `true`
 - hand sizes reset to `1`
 
 ## Shared Rules Behavior
@@ -387,7 +399,8 @@ state.
 
 Current components are intentionally thin:
 
-- `LobbyView`: readiness, host settings controls, start button, player list
+- `LobbyView`: readiness, host settings controls, host-only `Add bot` button,
+  and player list with bot markers
 - `TableView`: local hand, separate claim-to-beat panel, turn state,
   authoritative countdown, host pause control, collapsed last-round result
   panels, a unified top play strip for `Your hand`, `Selected claim`, and
@@ -397,12 +410,14 @@ Current components are intentionally thin:
   control in the match header that opens a left-side table drawer keeping
   players in a stable order while rendering per-player claim history as compact
   card previews; on mobile, the match header also exposes a `Show chat` button
-  that opens the chat and turn clock in a separate right-side drawer
+  that opens the chat and turn clock in a separate right-side drawer, and the
+  separate `Selected claim` panel is removed from the stacked mobile layout
 - `RoomChat`: snapshot-backed chat log plus a single send-message form
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
   from the room's selected claim-order preset; on mobile, the active category
   expands inline to reveal its exact rank or suit selectors directly beneath
-  that category instead of using the shared bottom control block
+  that category instead of using the shared bottom control block, and the
+  submit action appears directly under those inline mobile controls
 
 On narrow screens, the web app does not keep the chat rail as a stacked page
 section. The main gameplay stays full width, the unified top play strip stacks
@@ -422,6 +437,8 @@ The current privacy boundary is simple:
 - other players are represented by public rows and `cardCount`
 - all active hands are only revealed through `showdown.revealedHands` or
   `timeout.revealedHands`
+- bots follow that same privacy model for their decisions even though the
+  server process holds all hands in memory
 
 This is enforced by snapshot projection, not by trusting the client.
 

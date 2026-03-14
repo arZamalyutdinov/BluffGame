@@ -23,6 +23,8 @@ Initial planning baseline recorded on March 14, 2026.
 - Use `diamonds < clubs < hearts < spades` as the suit priority order for suit-based claims.
 - Let the host pause and resume the live turn timer during an active match.
 - Ship the first playable slice with session-token reconnect support.
+- Support host-added room bots that play from fair public-information limits
+  instead of reading hidden hands.
 - Returning from a finished match sends the room back to the lobby while keeping the same room code.
 
 ## Working Assumptions
@@ -46,6 +48,4 @@ Initial planning baseline recorded on March 14, 2026.
 - Server-side storage
 - Match history
 - Ranked matchmaking
-- AI opponents
 - Spectators
-- In-game chat

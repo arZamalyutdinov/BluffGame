@@ -17,6 +17,7 @@ export interface PlayerSnapshot {
   name: string;
   seatIndex: number;
   isHost: boolean;
+  isBot: boolean;
   isReady: boolean;
   connectionStatus: ConnectionStatus;
   handSize: number;

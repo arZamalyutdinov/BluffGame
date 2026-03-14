@@ -26,6 +26,12 @@ import {
   sortCardsDescending,
 } from '@bluff-game/shared';
 
+import {
+  type BotOpponentRead,
+  chooseBotAction,
+  generateBotName,
+} from './bot-strategy.js';
+
 class CommandError extends Error {
   constructor(
     message: string,
@@ -42,6 +48,7 @@ interface PlayerState {
   name: string;
   seatIndex: number;
   isHost: boolean;
+  isBot: boolean;
   isReady: boolean;
   connectionStatus: 'connected' | 'disconnected';
   handSize: number;
@@ -81,6 +88,7 @@ interface RoomState {
   hostPlayerId: string;
   settings: RoomSettings;
   players: PlayerState[];
+  playerReadsById: Record<string, BotOpponentRead>;
   chatMessages: RoomChatMessageSnapshot[];
   match: MatchState | undefined;
 }
@@ -97,6 +105,9 @@ interface RoomRegistryOptions {
   setTimer?: typeof setTimeout;
   clearTimer?: typeof clearTimeout;
 }
+
+const MAX_ROOM_PLAYERS = 8;
+const BOT_ACTION_DELAY_MS = 900;
 
 function createRoomCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -125,10 +136,26 @@ function sanitizeChatMessage(value: string): string {
   return value.trim().slice(0, MAX_CHAT_MESSAGE_LENGTH);
 }
 
+function createBotRead(): BotOpponentRead {
+  return {
+    caughtBluffs: 0,
+    provenClaims: 0,
+    timeouts: 0,
+  };
+}
+
+function getNextSeatIndex(room: RoomState): number {
+  return Math.max(-1, ...room.players.map((player) => player.seatIndex)) + 1;
+}
+
 export class RoomRegistry {
   private readonly rooms = new Map<string, RoomState>();
   private readonly roomQueues = new Map<string, Promise<void>>();
   private readonly turnTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly botTurnTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
@@ -184,6 +211,7 @@ export class RoomRegistry {
       name: player.name,
       seatIndex: player.seatIndex,
       isHost: player.playerId === room.hostPlayerId,
+      isBot: player.isBot,
       isReady: player.isReady,
       connectionStatus: player.connectionStatus,
       handSize: player.handSize,
@@ -282,6 +310,9 @@ export class RoomRegistry {
       phase: 'lobby',
       hostPlayerId: playerId,
       settings: { ...DEFAULT_ROOM_SETTINGS },
+      playerReadsById: {
+        [playerId]: createBotRead(),
+      },
       chatMessages: [],
       match: undefined,
       players: [
@@ -292,6 +323,7 @@ export class RoomRegistry {
           name,
           seatIndex: 0,
           isHost: true,
+          isBot: false,
           isReady: false,
           connectionStatus: 'disconnected',
           handSize: 1,
@@ -320,7 +352,7 @@ export class RoomRegistry {
         );
       }
 
-      if (room.players.length >= 8) {
+      if (room.players.length >= MAX_ROOM_PLAYERS) {
         throw new CommandError('This room is already full.');
       }
 
@@ -340,13 +372,15 @@ export class RoomRegistry {
         sessionToken,
         socketId: undefined,
         name,
-        seatIndex: room.players.length,
+        seatIndex: getNextSeatIndex(room),
         isHost: false,
+        isBot: false,
         isReady: false,
         connectionStatus: 'disconnected',
         handSize: 1,
         isEliminated: false,
       });
+      room.playerReadsById[playerId] = createBotRead();
 
       return roomSessionSchema.parse({
         roomCode: code,
@@ -423,14 +457,52 @@ export class RoomRegistry {
       room.players = room.players.filter(
         (player) => player.playerId !== playerId,
       );
+      delete room.playerReadsById[playerId];
 
-      if (room.players.length === 0) {
+      if (room.players.filter((player) => !player.isBot).length === 0) {
         this.clearTurnTimeout(code);
+        this.clearBotTurn(code);
         this.rooms.delete(code);
         return;
       }
 
       this.maybeReassignHost(room, playerId);
+    });
+  }
+
+  async addBot(code: string, playerId: string) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+
+      if (room.phase !== 'lobby') {
+        throw new CommandError(
+          'Bots can only be added while the room is in the lobby.',
+        );
+      }
+
+      this.assertHost(room, playerId);
+
+      if (room.players.length >= MAX_ROOM_PLAYERS) {
+        throw new CommandError('This room is already full.');
+      }
+
+      const botPlayerId = randomUUID();
+      const name = generateBotName(room.players.map((player) => player.name));
+
+      room.players.push({
+        playerId: botPlayerId,
+        sessionToken: randomUUID(),
+        socketId: undefined,
+        name,
+        seatIndex: getNextSeatIndex(room),
+        isHost: false,
+        isBot: true,
+        isReady: true,
+        connectionStatus: 'connected',
+        handSize: 1,
+        isEliminated: false,
+      });
+      room.playerReadsById[botPlayerId] = createBotRead();
     });
   }
 
@@ -478,7 +550,7 @@ export class RoomRegistry {
       if (settingsChanged) {
         room.players = room.players.map((player) => ({
           ...player,
-          isReady: false,
+          isReady: player.isBot,
         }));
       }
     });
@@ -523,7 +595,7 @@ export class RoomRegistry {
         roundNumber: 1,
         starterSeatIndex,
       });
-      this.scheduleTurnTimeout(room);
+      this.syncAutonomousTurn(room);
     });
   }
 
@@ -582,153 +654,14 @@ export class RoomRegistry {
   async submitClaim(code: string, playerId: string, claimKey: string) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
-      const match = this.requireActiveMatch(room);
-      const player = this.requirePlayer(room, playerId);
-
-      if (this.resolveExpiredTurnIfNeeded(room)) {
-        return;
-      }
-
-      if (match.turnTimer?.isPaused) {
-        throw new CommandError('The game is paused.');
-      }
-
-      if (player.seatIndex !== match.round.currentTurnSeatIndex) {
-        throw new CommandError('It is not your turn.');
-      }
-
-      const claim = parseClaimKey(claimKey);
-
-      if (
-        match.round.lastClaim &&
-        compareClaims(
-          claim,
-          match.round.lastClaim,
-          room.settings.claimOrderPreset,
-        ) <= 0
-      ) {
-        throw new CommandError(
-          'Each claim must be strictly stronger than the previous one.',
-        );
-      }
-
-      match.round.lastClaim = claim;
-      match.round.lastClaimantPlayerId = playerId;
-      match.round.claimHistory.push({
-        sequenceNumber: match.round.claimHistory.length + 1,
-        playerId,
-        claim,
-      });
-      match.round.currentTurnSeatIndex = getNextActiveSeatIndex(
-        this.toPenaltyPlayerStates(room),
-        player.seatIndex,
-      );
-      match.phase = 'awaiting-response';
-      this.resetTurnTimer(room);
+      this.submitClaimForPlayer(room, playerId, parseClaimKey(claimKey));
     });
   }
 
   async challengeClaim(code: string, playerId: string) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
-      const match = this.requireActiveMatch(room);
-      const challenger = this.requirePlayer(room, playerId);
-
-      if (this.resolveExpiredTurnIfNeeded(room)) {
-        return;
-      }
-
-      if (match.turnTimer?.isPaused) {
-        throw new CommandError('The game is paused.');
-      }
-
-      if (challenger.seatIndex !== match.round.currentTurnSeatIndex) {
-        throw new CommandError('It is not your turn.');
-      }
-
-      if (!match.round.lastClaim || !match.round.lastClaimantPlayerId) {
-        throw new CommandError('There is no claim to challenge yet.');
-      }
-
-      const resolution = resolveShowdown({
-        claim: match.round.lastClaim,
-        claimantPlayerId: match.round.lastClaimantPlayerId,
-        challengerPlayerId: challenger.playerId,
-        handsByPlayerId: match.round.handsByPlayerId,
-        players: this.toPenaltyPlayerStates(room),
-        eliminationHandSize: room.settings.eliminationHandSize,
-      });
-
-      this.clearTurnTimeout(code);
-
-      for (const updatedPlayer of resolution.updatedPlayers) {
-        const player = this.requirePlayer(room, updatedPlayer.playerId);
-        player.handSize = updatedPlayer.handSize;
-        player.isEliminated = updatedPlayer.isEliminated;
-      }
-
-      const remainingPlayers = room.players.filter(
-        (player) => !player.isEliminated,
-      );
-      const revealedHands = this.buildRevealedHands(
-        room,
-        match.round.handsByPlayerId,
-        resolution.loserPlayerId,
-      );
-
-      if (remainingPlayers.length === 1) {
-        const winner = remainingPlayers[0];
-
-        if (!winner) {
-          throw new CommandError('A winning player could not be determined.');
-        }
-
-        room.phase = 'match-complete';
-        match.phase = 'match-complete';
-        match.winnerPlayerId = winner.playerId;
-        match.lastShowdown = {
-          spokenClaim: match.round.lastClaim,
-          claimantPlayerId: match.round.lastClaimantPlayerId,
-          challengerPlayerId: challenger.playerId,
-          claimWasValid: resolution.claimWasValid,
-          loserPlayerId: resolution.loserPlayerId,
-          loserHandSize: resolution.loserHandSize,
-          loserEliminated: resolution.loserEliminated,
-          revealedHands,
-        };
-        match.lastTimeout = undefined;
-        match.turnTimer = undefined;
-        match.round.currentTurnSeatIndex = winner.seatIndex;
-        return;
-      }
-
-      const nextStarterSeatIndex = getNextActiveSeatIndex(
-        this.toPenaltyPlayerStates(room),
-        match.round.starterSeatIndex,
-      );
-
-      const showdown: ShowdownSnapshot = {
-        spokenClaim: match.round.lastClaim,
-        claimantPlayerId: match.round.lastClaimantPlayerId,
-        challengerPlayerId: challenger.playerId,
-        claimWasValid: resolution.claimWasValid,
-        loserPlayerId: resolution.loserPlayerId,
-        loserHandSize: resolution.loserHandSize,
-        loserEliminated: resolution.loserEliminated,
-        revealedHands,
-        nextStarterPlayerId: this.requirePlayerBySeat(
-          room,
-          nextStarterSeatIndex,
-        ).playerId,
-      };
-
-      room.phase = 'in-match';
-      room.match = this.createRound(room, {
-        roundNumber: match.round.roundNumber + 1,
-        starterSeatIndex: nextStarterSeatIndex,
-        lastShowdown: showdown,
-      });
-      this.scheduleTurnTimeout(room);
+      this.challengeClaimForPlayer(room, playerId);
     });
   }
 
@@ -738,12 +671,13 @@ export class RoomRegistry {
       this.assertHost(room, playerId);
 
       this.clearTurnTimeout(code);
+      this.clearBotTurn(code);
       room.phase = 'lobby';
       room.players = room.players.map((player) => ({
         ...player,
         handSize: 1,
         isEliminated: false,
-        isReady: false,
+        isReady: player.isBot,
       }));
       room.match = undefined;
     });
@@ -806,7 +740,7 @@ export class RoomRegistry {
     room.match.turnTimer = this.createRunningTurnTimer(
       room.settings.turnTimeLimitSeconds,
     );
-    this.scheduleTurnTimeout(room);
+    this.syncAutonomousTurn(room);
   }
 
   private pauseTurnTimer(room: RoomState, pausedByPlayerId: string) {
@@ -824,6 +758,7 @@ export class RoomRegistry {
       pausedByPlayerId,
     };
     this.clearTurnTimeout(room.code);
+    this.clearBotTurn(room.code);
   }
 
   private resumeTurnTimer(room: RoomState) {
@@ -837,7 +772,12 @@ export class RoomRegistry {
       isPaused: false,
       deadlineAtMs: this.now() + room.match.turnTimer.remainingMs,
     };
+    this.syncAutonomousTurn(room);
+  }
+
+  private syncAutonomousTurn(room: RoomState) {
     this.scheduleTurnTimeout(room);
+    this.scheduleBotTurn(room);
   }
 
   private scheduleTurnTimeout(room: RoomState) {
@@ -873,6 +813,46 @@ export class RoomRegistry {
     this.turnTimers.delete(code);
   }
 
+  private scheduleBotTurn(room: RoomState) {
+    this.clearBotTurn(room.code);
+
+    if (
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase === 'match-complete' ||
+      !room.match.turnTimer ||
+      room.match.turnTimer?.isPaused
+    ) {
+      return;
+    }
+
+    const currentPlayer = this.requirePlayerBySeat(
+      room,
+      room.match.round.currentTurnSeatIndex,
+    );
+
+    if (!currentPlayer.isBot) {
+      return;
+    }
+
+    const handle = this.setTimer(() => {
+      this.botTurnTimers.delete(room.code);
+      void this.handleBotTurn(room.code);
+    }, BOT_ACTION_DELAY_MS);
+    this.botTurnTimers.set(room.code, handle);
+  }
+
+  private clearBotTurn(code: string) {
+    const handle = this.botTurnTimers.get(code);
+
+    if (!handle) {
+      return;
+    }
+
+    this.clearTimer(handle);
+    this.botTurnTimers.delete(code);
+  }
+
   private async handleTurnTimeout(code: string) {
     let shouldBroadcast = false;
 
@@ -880,6 +860,19 @@ export class RoomRegistry {
       const room = this.rooms.get(code);
 
       shouldBroadcast = this.resolveTurnTimeout(room);
+    });
+
+    if (shouldBroadcast) {
+      this.onAutonomousRoomUpdate?.(code);
+    }
+  }
+
+  private async handleBotTurn(code: string) {
+    let shouldBroadcast = false;
+
+    await this.withRoomLock(code, () => {
+      const room = this.rooms.get(code);
+      shouldBroadcast = this.resolveBotTurn(room);
     });
 
     if (shouldBroadcast) {
@@ -953,6 +946,11 @@ export class RoomRegistry {
       match.round.handsByPlayerId,
       resolution.loserPlayerId,
     );
+    room.playerReadsById[timedOutPlayer.playerId] = {
+      ...(room.playerReadsById[timedOutPlayer.playerId] ?? createBotRead()),
+      timeouts:
+        (room.playerReadsById[timedOutPlayer.playerId]?.timeouts ?? 0) + 1,
+    };
     const remainingPlayers = room.players.filter(
       (player) => !player.isEliminated,
     );
@@ -980,6 +978,7 @@ export class RoomRegistry {
       };
       match.turnTimer = undefined;
       match.round.currentTurnSeatIndex = winner.seatIndex;
+      this.clearBotTurn(room.code);
 
       return true;
     }
@@ -1007,7 +1006,66 @@ export class RoomRegistry {
       starterSeatIndex: nextStarterSeatIndex,
       lastTimeout: timeout,
     });
-    this.scheduleTurnTimeout(room);
+    this.syncAutonomousTurn(room);
+    return true;
+  }
+
+  private resolveBotTurn(room: RoomState | undefined): boolean {
+    if (!room) {
+      return false;
+    }
+
+    if (this.resolveExpiredTurnIfNeeded(room)) {
+      return true;
+    }
+
+    if (
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase === 'match-complete' ||
+      room.match.turnTimer?.isPaused
+    ) {
+      return false;
+    }
+
+    const currentPlayer = this.requirePlayerBySeat(
+      room,
+      room.match.round.currentTurnSeatIndex,
+    );
+
+    if (!currentPlayer.isBot) {
+      return false;
+    }
+
+    const hand = room.match.round.handsByPlayerId[currentPlayer.playerId] ?? [];
+    const totalCardsInRound = Object.values(
+      room.match.round.handsByPlayerId,
+    ).reduce((count, cards) => count + cards.length, 0);
+    const activePlayerCount = room.players.filter(
+      (player) => !player.isEliminated,
+    ).length;
+    const claimantRead = room.match.round.lastClaimantPlayerId
+      ? room.playerReadsById[room.match.round.lastClaimantPlayerId]
+      : undefined;
+    const decision = chooseBotAction({
+      hand,
+      totalCardsInRound,
+      activePlayerCount,
+      selfHandSize: currentPlayer.handSize,
+      eliminationHandSize: room.settings.eliminationHandSize,
+      claimOrderPreset: room.settings.claimOrderPreset,
+      ...(room.match.round.lastClaim
+        ? { lastClaim: room.match.round.lastClaim }
+        : {}),
+      ...(claimantRead ? { claimantRead } : {}),
+    });
+
+    if (decision.type === 'challenge') {
+      this.challengeClaimForPlayer(room, currentPlayer.playerId);
+      return true;
+    }
+
+    this.submitClaimForPlayer(room, currentPlayer.playerId, decision.claim);
     return true;
   }
 
@@ -1086,10 +1144,13 @@ export class RoomRegistry {
       return;
     }
 
+    const humanPlayers = sortPlayersBySeat(room.players).filter(
+      (player) => !player.isBot,
+    );
     const nextHost =
-      sortPlayersBySeat(room.players).find(
-        (player) => player.connectionStatus === 'connected',
-      ) ?? sortPlayersBySeat(room.players)[0];
+      humanPlayers.find((player) => player.connectionStatus === 'connected') ??
+      humanPlayers[0] ??
+      sortPlayersBySeat(room.players)[0];
 
     if (!nextHost) {
       return;
@@ -1124,6 +1185,171 @@ export class RoomRegistry {
         this.roomQueues.delete(code);
       }
     }
+  }
+
+  private submitClaimForPlayer(
+    room: RoomState,
+    playerId: string,
+    claim: Claim,
+  ) {
+    const match = this.requireActiveMatch(room);
+    const player = this.requirePlayer(room, playerId);
+
+    if (this.resolveExpiredTurnIfNeeded(room)) {
+      return;
+    }
+
+    if (match.turnTimer?.isPaused) {
+      throw new CommandError('The game is paused.');
+    }
+
+    if (player.seatIndex !== match.round.currentTurnSeatIndex) {
+      throw new CommandError('It is not your turn.');
+    }
+
+    if (
+      match.round.lastClaim &&
+      compareClaims(
+        claim,
+        match.round.lastClaim,
+        room.settings.claimOrderPreset,
+      ) <= 0
+    ) {
+      throw new CommandError(
+        'Each claim must be strictly stronger than the previous one.',
+      );
+    }
+
+    match.round.lastClaim = claim;
+    match.round.lastClaimantPlayerId = playerId;
+    match.round.claimHistory.push({
+      sequenceNumber: match.round.claimHistory.length + 1,
+      playerId,
+      claim,
+    });
+    match.round.currentTurnSeatIndex = getNextActiveSeatIndex(
+      this.toPenaltyPlayerStates(room),
+      player.seatIndex,
+    );
+    match.phase = 'awaiting-response';
+    this.resetTurnTimer(room);
+  }
+
+  private challengeClaimForPlayer(room: RoomState, playerId: string) {
+    const match = this.requireActiveMatch(room);
+    const challenger = this.requirePlayer(room, playerId);
+
+    if (this.resolveExpiredTurnIfNeeded(room)) {
+      return;
+    }
+
+    if (match.turnTimer?.isPaused) {
+      throw new CommandError('The game is paused.');
+    }
+
+    if (challenger.seatIndex !== match.round.currentTurnSeatIndex) {
+      throw new CommandError('It is not your turn.');
+    }
+
+    if (!match.round.lastClaim || !match.round.lastClaimantPlayerId) {
+      throw new CommandError('There is no claim to challenge yet.');
+    }
+
+    const resolution = resolveShowdown({
+      claim: match.round.lastClaim,
+      claimantPlayerId: match.round.lastClaimantPlayerId,
+      challengerPlayerId: challenger.playerId,
+      handsByPlayerId: match.round.handsByPlayerId,
+      players: this.toPenaltyPlayerStates(room),
+      eliminationHandSize: room.settings.eliminationHandSize,
+    });
+
+    this.clearTurnTimeout(room.code);
+    this.clearBotTurn(room.code);
+
+    room.playerReadsById[match.round.lastClaimantPlayerId] =
+      resolution.claimWasValid
+        ? {
+            ...(room.playerReadsById[match.round.lastClaimantPlayerId] ??
+              createBotRead()),
+            provenClaims:
+              (room.playerReadsById[match.round.lastClaimantPlayerId]
+                ?.provenClaims ?? 0) + 1,
+          }
+        : {
+            ...(room.playerReadsById[match.round.lastClaimantPlayerId] ??
+              createBotRead()),
+            caughtBluffs:
+              (room.playerReadsById[match.round.lastClaimantPlayerId]
+                ?.caughtBluffs ?? 0) + 1,
+          };
+
+    for (const updatedPlayer of resolution.updatedPlayers) {
+      const player = this.requirePlayer(room, updatedPlayer.playerId);
+      player.handSize = updatedPlayer.handSize;
+      player.isEliminated = updatedPlayer.isEliminated;
+    }
+
+    const remainingPlayers = room.players.filter(
+      (player) => !player.isEliminated,
+    );
+    const revealedHands = this.buildRevealedHands(
+      room,
+      match.round.handsByPlayerId,
+      resolution.loserPlayerId,
+    );
+
+    if (remainingPlayers.length === 1) {
+      const winner = remainingPlayers[0];
+
+      if (!winner) {
+        throw new CommandError('A winning player could not be determined.');
+      }
+
+      room.phase = 'match-complete';
+      match.phase = 'match-complete';
+      match.winnerPlayerId = winner.playerId;
+      match.lastShowdown = {
+        spokenClaim: match.round.lastClaim,
+        claimantPlayerId: match.round.lastClaimantPlayerId,
+        challengerPlayerId: challenger.playerId,
+        claimWasValid: resolution.claimWasValid,
+        loserPlayerId: resolution.loserPlayerId,
+        loserHandSize: resolution.loserHandSize,
+        loserEliminated: resolution.loserEliminated,
+        revealedHands,
+      };
+      match.lastTimeout = undefined;
+      match.turnTimer = undefined;
+      match.round.currentTurnSeatIndex = winner.seatIndex;
+      return;
+    }
+
+    const nextStarterSeatIndex = getNextActiveSeatIndex(
+      this.toPenaltyPlayerStates(room),
+      match.round.starterSeatIndex,
+    );
+
+    const showdown: ShowdownSnapshot = {
+      spokenClaim: match.round.lastClaim,
+      claimantPlayerId: match.round.lastClaimantPlayerId,
+      challengerPlayerId: challenger.playerId,
+      claimWasValid: resolution.claimWasValid,
+      loserPlayerId: resolution.loserPlayerId,
+      loserHandSize: resolution.loserHandSize,
+      loserEliminated: resolution.loserEliminated,
+      revealedHands,
+      nextStarterPlayerId: this.requirePlayerBySeat(room, nextStarterSeatIndex)
+        .playerId,
+    };
+
+    room.phase = 'in-match';
+    room.match = this.createRound(room, {
+      roundNumber: match.round.roundNumber + 1,
+      starterSeatIndex: nextStarterSeatIndex,
+      lastShowdown: showdown,
+    });
+    this.syncAutonomousTurn(room);
   }
 }
 

@@ -7,7 +7,7 @@ import {
 
 import { RoomRegistry } from '../src/room-registry.js';
 
-describe('RoomRegistry turn timer', () => {
+describe('RoomRegistry', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-14T12:00:00.000Z'));
@@ -90,6 +90,104 @@ describe('RoomRegistry turn timer', () => {
 
     await expect(registry.joinRoom(host.roomCode, ' host ')).rejects.toThrow(
       'That display name is already in use in this room.',
+    );
+  });
+
+  it('lets the host add a ready bot in the lobby', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+
+    await registry.addBot(host.roomCode, host.playerId);
+
+    const snapshot = registry.buildSnapshot(host.roomCode, host.playerId);
+    const bot = snapshot.players.find((player) => player.isBot);
+
+    expect(bot).toMatchObject({
+      isBot: true,
+      isReady: true,
+      connectionStatus: 'connected',
+    });
+    expect(bot?.name.length).toBeGreaterThan(0);
+  });
+
+  it('rejects add-bot requests from non-host players', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+
+    await expect(
+      registry.addBot(host.roomCode, guest.playerId),
+    ).rejects.toThrow('Only the host can do that.');
+  });
+
+  it('keeps bot names reserved against later joins', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+
+    await registry.addBot(host.roomCode, host.playerId);
+
+    const snapshot = registry.buildSnapshot(host.roomCode, host.playerId);
+    const botName = snapshot.players.find((player) => player.isBot)?.name;
+
+    expect(botName).toBeTruthy();
+    await expect(
+      registry.joinRoom(host.roomCode, ` ${botName} `),
+    ).rejects.toThrow('That display name is already in use in this room.');
+  });
+
+  it('keeps bots ready when the host changes room settings', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+
+    await registry.addBot(host.roomCode, host.playerId);
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.updateRoomSettings(host.roomCode, host.playerId, {
+      ...DEFAULT_ROOM_SETTINGS,
+      eliminationHandSize: 4,
+    });
+
+    const snapshot = registry.buildSnapshot(host.roomCode, host.playerId);
+    const bot = snapshot.players.find((player) => player.isBot);
+    const humanHost = snapshot.players.find(
+      (player) => player.playerId === host.playerId,
+    );
+
+    expect(bot?.isReady).toBe(true);
+    expect(humanHost?.isReady).toBe(false);
+  });
+
+  it('executes bot turns automatically during a match', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+
+    await registry.addBot(host.roomCode, host.playerId);
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+
+    const bot = registry
+      .buildSnapshot(host.roomCode, host.playerId)
+      .players.find((player) => player.isBot);
+
+    expect(bot).toBeTruthy();
+
+    let beforeBotTurn = registry.buildSnapshot(host.roomCode, host.playerId);
+
+    if (beforeBotTurn.match?.currentTurnPlayerId !== bot?.playerId) {
+      await registry.submitClaim(host.roomCode, host.playerId, 'high-card:2');
+      beforeBotTurn = registry.buildSnapshot(host.roomCode, host.playerId);
+    }
+
+    const claimCountBefore = beforeBotTurn.match?.claimHistory.length ?? 0;
+    const roundBefore = beforeBotTurn.match?.roundNumber ?? 0;
+
+    await vi.advanceTimersByTimeAsync(1200);
+
+    const afterBotTurn = registry.buildSnapshot(host.roomCode, host.playerId);
+    const claimCountAfter = afterBotTurn.match?.claimHistory.length ?? 0;
+    const roundAfter = afterBotTurn.match?.roundNumber ?? 0;
+
+    expect(claimCountAfter > claimCountBefore || roundAfter > roundBefore).toBe(
+      true,
     );
   });
 

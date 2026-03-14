@@ -311,6 +311,7 @@ function RoomPage() {
           isConnected={state.isConnected}
           pendingCommand={state.pendingCommand}
           onSetReady={(ready) => sendCommand('setReady', { ready })}
+          onAddBot={() => sendCommand('addBot', {})}
           onStartMatch={() => sendCommand('startMatch')}
           onUpdateSettings={(settings) =>
             sendCommand('updateRoomSettings', settings)
