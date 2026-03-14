@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import {
   type Claim,
@@ -6,6 +6,7 @@ import {
   type RoomSnapshot,
   cardToShortLabel,
   claimToCompactLabel,
+  claimToKey,
   claimToLabel,
   sortCardsDescending,
 } from '@bluff-game/shared';
@@ -14,6 +15,7 @@ import { claimToIllustrationCards } from '../lib/claimVisuals.js';
 import { ClaimComposer } from './ClaimComposer.js';
 import { ClaimCardStack, ClaimPreviewPanel } from './ClaimPreview.js';
 import { RoomChat } from './RoomChat.js';
+import { RoundResolutionOverlay } from './RoundResolutionOverlay.js';
 
 interface TableViewProps {
   snapshot: RoomSnapshot;
@@ -42,48 +44,6 @@ function sortPlayersBySeat(snapshot: RoomSnapshot): PlayerSnapshot[] {
   );
 }
 
-function buildActiveTurnPositionById(
-  players: PlayerSnapshot[],
-  currentTurnPlayerId: string,
-): Map<string, number> {
-  const activePlayers = players.filter((player) => !player.isEliminated);
-  const currentPosition = activePlayers.findIndex(
-    (player) => player.playerId === currentTurnPlayerId,
-  );
-  const positions = new Map<string, number>();
-
-  if (currentPosition === -1) {
-    return positions;
-  }
-
-  for (let index = 0; index < activePlayers.length; index += 1) {
-    const player =
-      activePlayers[(currentPosition + index) % activePlayers.length];
-
-    if (player) {
-      positions.set(player.playerId, index);
-    }
-  }
-
-  return positions;
-}
-
-function getTurnOrderLabel(position: number | undefined): string {
-  if (position === undefined) {
-    return 'out';
-  }
-
-  if (position === 0) {
-    return 'acting now';
-  }
-
-  if (position === 1) {
-    return 'up next';
-  }
-
-  return `order ${position + 1}`;
-}
-
 interface ResultDetailsProps {
   title: string;
   summary: string;
@@ -101,6 +61,31 @@ function ResultDetails({ title, summary, children }: ResultDetailsProps) {
       <div className="result-details-body">{children}</div>
     </details>
   );
+}
+
+function buildResolutionKey(match: NonNullable<RoomSnapshot['match']>) {
+  if (match.showdown) {
+    return [
+      'showdown',
+      match.roundNumber,
+      match.showdown.claimantPlayerId,
+      match.showdown.challengerPlayerId,
+      match.showdown.loserPlayerId,
+      match.showdown.claimWasValid ? 'valid' : 'invalid',
+      claimToKey(match.showdown.spokenClaim),
+    ].join(':');
+  }
+
+  if (match.timeout) {
+    return [
+      'timeout',
+      match.roundNumber,
+      match.timeout.timedOutPlayerId,
+      match.timeout.lastClaim ? claimToKey(match.timeout.lastClaim) : 'opening',
+    ].join(':');
+  }
+
+  return null;
 }
 
 export function TableView({
@@ -176,6 +161,29 @@ export function TableView({
     return null;
   }
 
+  const resolutionKey = buildResolutionKey(match);
+  const activeResolution = useMemo(() => {
+    if (match.showdown) {
+      return {
+        kind: 'showdown' as const,
+        key: resolutionKey ?? 'showdown',
+        data: match.showdown,
+      };
+    }
+
+    if (match.timeout) {
+      return {
+        kind: 'timeout' as const,
+        key: resolutionKey ?? 'timeout',
+        data: match.timeout,
+      };
+    }
+
+    return undefined;
+  }, [match.showdown, match.timeout, resolutionKey]);
+  const isShowingResult = match.phase === 'showing-result';
+  const isResolutionOverlayOpen = Boolean(activeResolution) && isShowingResult;
+
   const isMyTurn = match.currentTurnPlayerId === snapshot.selfPlayerId;
   const isHost = snapshot.hostPlayerId === snapshot.selfPlayerId;
   const playersById = new Map(
@@ -185,10 +193,6 @@ export function TableView({
   const orderedPlayers = sortPlayersBySeat(snapshot);
   const activePlayersInOrder = orderedPlayers.filter(
     (player) => !player.isEliminated,
-  );
-  const activeTurnPositionById = buildActiveTurnPositionById(
-    orderedPlayers,
-    match.currentTurnPlayerId,
   );
   const claimsByPlayerId = new Map<
     string,
@@ -203,6 +207,7 @@ export function TableView({
 
   const showdown = match.showdown;
   const timeout = match.timeout;
+  const currentTurnPlayerId = match.currentTurnPlayerId;
   const winner = match.winnerPlayerId
     ? playersById.get(match.winnerPlayerId)
     : undefined;
@@ -214,7 +219,11 @@ export function TableView({
     : null;
   const isPaused = turnTimer?.isPaused ?? false;
   const actionDisabled =
-    !isConnected || pendingCommand !== null || isPaused || remainingMs === 0;
+    !isConnected ||
+    pendingCommand !== null ||
+    isPaused ||
+    remainingMs === 0 ||
+    isShowingResult;
   const checkDisabled =
     !match.lastClaim || !isMyTurn || !!winner || actionDisabled;
   const selectedClaimEmptyState = winner
@@ -227,15 +236,20 @@ export function TableView({
           title: 'Claim selection paused',
           text: 'The host has paused the active turn.',
         }
-      : isMyTurn
+      : isShowingResult
         ? {
-            title: 'Pick a claim',
-            text: 'Choose a category below, then tune the exact hand.',
+            title: 'Resolving round',
+            text: 'Waiting for the result sequence to finish.',
           }
-        : {
-            title: 'Waiting for your turn',
-            text: 'Your next move will appear here once the turn comes around.',
-          };
+        : isMyTurn
+          ? {
+              title: 'Pick a claim',
+              text: 'Choose a category below, then tune the exact hand.',
+            }
+          : {
+              title: 'Waiting for your turn',
+              text: 'Your next move will appear here once the turn comes around.',
+            };
 
   function renderChatRailContent(hideChatHeader = false) {
     return (
@@ -278,8 +292,98 @@ export function TableView({
     );
   }
 
+  function renderPlayerTableSection() {
+    return (
+      <section className="side-panel-section">
+        <div className="side-panel-header">
+          <h2>Players</h2>
+
+          <span className="pill connected">
+            {activePlayersInOrder.length} active
+          </span>
+        </div>
+
+        <ul className="player-list">
+          {orderedPlayers.map((player) => {
+            const playerClaims = claimsByPlayerId.get(player.playerId) ?? [];
+
+            return (
+              <li
+                key={player.playerId}
+                className={`player-row ${player.playerId === currentTurnPlayerId ? 'turn-row' : ''}`}
+              >
+                <details className="player-details">
+                  <summary className="player-details-summary">
+                    <div className="player-primary">
+                      <div className="player-name-row">
+                        <strong>{player.name}</strong>
+                        {player.isHost ? (
+                          <span className="host-star" aria-label="Host">
+                            ★
+                          </span>
+                        ) : null}
+                        {player.isBot ? (
+                          <span className="pill bot">bot</span>
+                        ) : null}
+                      </div>
+
+                      {player.playerId === snapshot.selfPlayerId ? (
+                        <p className="row-meta">you</p>
+                      ) : null}
+                    </div>
+
+                    <div className="status-pills player-status-pills">
+                      <span
+                        className={
+                          player.isEliminated ? 'pill idle' : 'pill ready'
+                        }
+                      >
+                        {player.isEliminated
+                          ? 'out'
+                          : `${player.cardCount} dealt`}
+                      </span>
+                    </div>
+                  </summary>
+
+                  <div className="player-details-body">
+                    {playerClaims.length > 0 ? (
+                      <div className="player-claim-history">
+                        {playerClaims.map((entry) => (
+                          <div
+                            key={entry.sequenceNumber}
+                            className="player-claim-chip"
+                            aria-label={claimToLabel(entry.claim)}
+                            title={claimToCompactLabel(entry.claim)}
+                          >
+                            <ClaimCardStack
+                              cards={claimToIllustrationCards(entry.claim)}
+                              compact
+                            />
+                            <span className="player-claim-label">
+                              {claimToCompactLabel(entry.claim)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="row-meta">No claims yet.</p>
+                    )}
+                  </div>
+                </details>
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+    );
+  }
+
   return (
     <section className="surface-grid match-layout">
+      <aside className="panel table-side-panel players-side-panel">
+        {renderPlayerTableSection()}
+      </aside>
+
       <article className="hero-panel match-main-panel">
         <div className="table-headline">
           <div>
@@ -288,11 +392,13 @@ export function TableView({
             <p className="lead">
               {winner
                 ? `${winner.name} won the match.`
-                : isPaused
-                  ? `Paused on ${currentPlayer?.name ?? 'the active player'}.`
-                  : isMyTurn
-                    ? 'Your turn.'
-                    : `${currentPlayer?.name ?? 'Another player'} is acting.`}
+                : isShowingResult
+                  ? 'Resolving the last round.'
+                  : isPaused
+                    ? `Paused on ${currentPlayer?.name ?? 'the active player'}.`
+                    : isMyTurn
+                      ? 'Your turn.'
+                      : `${currentPlayer?.name ?? 'Another player'} is acting.`}
             </p>
           </div>
 
@@ -389,6 +495,11 @@ export function TableView({
               <div className="muted-panel">
                 Game paused. Waiting for the host to resume the current turn.
               </div>
+            ) : isShowingResult ? (
+              <div className="muted-panel">
+                Round result is being shown. The next turn starts automatically
+                after the reveal.
+              </div>
             ) : isMyTurn ? (
               <>
                 <ClaimComposer
@@ -420,7 +531,7 @@ export function TableView({
           </div>
         )}
 
-        {showdown ? (
+        {!isResolutionOverlayOpen && showdown ? (
           <ResultDetails
             title="Last showdown"
             summary={
@@ -466,7 +577,7 @@ export function TableView({
           </ResultDetails>
         ) : null}
 
-        {timeout ? (
+        {!isResolutionOverlayOpen && timeout ? (
           <ResultDetails
             title="Last timeout"
             summary={`${playersById.get(timeout.timedOutPlayerId)?.name ?? 'A player'} ran out of time`}
@@ -542,89 +653,7 @@ export function TableView({
           </button>
         </div>
 
-        <section className="side-panel-section">
-          <div className="side-panel-header">
-            <h2>Players</h2>
-
-            <span className="pill connected">
-              {activePlayersInOrder.length} active
-            </span>
-          </div>
-
-          <ul className="player-list">
-            {orderedPlayers.map((player) => {
-              const turnPosition = activeTurnPositionById.get(player.playerId);
-              const playerClaims = claimsByPlayerId.get(player.playerId) ?? [];
-
-              return (
-                <li
-                  key={player.playerId}
-                  className={`player-row ${player.playerId === match.currentTurnPlayerId ? 'turn-row' : ''}`}
-                >
-                  <div className="player-primary">
-                    <div className="player-name-row">
-                      <strong>{player.name}</strong>
-                      {player.isHost ? (
-                        <span className="host-star" aria-label="Host">
-                          ★
-                        </span>
-                      ) : null}
-                      {player.isBot ? (
-                        <span className="pill bot">bot</span>
-                      ) : null}
-                    </div>
-
-                    {player.playerId === snapshot.selfPlayerId ? (
-                      <p className="row-meta">you</p>
-                    ) : null}
-
-                    {playerClaims.length > 0 ? (
-                      <div className="player-claim-history">
-                        {playerClaims.map((entry) => (
-                          <div
-                            key={entry.sequenceNumber}
-                            className="player-claim-chip"
-                            aria-label={claimToLabel(entry.claim)}
-                            title={claimToCompactLabel(entry.claim)}
-                          >
-                            <ClaimCardStack
-                              cards={claimToIllustrationCards(entry.claim)}
-                              compact
-                            />
-                            <span className="player-claim-label">
-                              {claimToCompactLabel(entry.claim)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="status-pills player-status-pills">
-                    <span
-                      className={
-                        turnPosition === 0 && !player.isEliminated
-                          ? 'pill connected'
-                          : 'pill idle'
-                      }
-                    >
-                      {getTurnOrderLabel(turnPosition)}
-                    </span>
-                    <span
-                      className={
-                        player.isEliminated ? 'pill idle' : 'pill ready'
-                      }
-                    >
-                      {player.isEliminated
-                        ? 'out'
-                        : `${player.cardCount} dealt`}
-                    </span>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
+        {renderPlayerTableSection()}
       </aside>
 
       <aside
@@ -649,6 +678,13 @@ export function TableView({
 
         <div className="chat-drawer-content">{renderChatRailContent(true)}</div>
       </aside>
+
+      {activeResolution && isResolutionOverlayOpen ? (
+        <RoundResolutionOverlay
+          result={activeResolution}
+          players={snapshot.players}
+        />
+      ) : null}
     </section>
   );
 }

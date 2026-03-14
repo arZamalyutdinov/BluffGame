@@ -202,6 +202,7 @@ export const roomSnapshotSchema = z.object({
       phase: z.enum([
         'awaiting-opening-claim',
         'awaiting-response',
+        'showing-result',
         'match-complete',
       ]),
       roundNumber: z.number().int().min(1),

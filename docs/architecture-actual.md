@@ -28,6 +28,7 @@ higher-level planning document.
             ├── cards/
             ├── claims/
             ├── protocol/
+            ├── resolution/
             ├── rules/
             ├── settings/
             └── state/
@@ -61,6 +62,8 @@ It currently contains:
 - `cards`: card types, deck creation, shuffling, dealing, card labels
 - `claims`: normalized claim types, comparison ordering, serialization to keys,
   display labels, and generated claim lists per preset
+- `resolution`: shared timing constants and helpers for the animated
+  round-result display window
 - `rules`: exact-claim existence checks, showdown resolution, and starter
   rotation helpers
 - `protocol`: Zod schemas for HTTP payloads, socket auth, commands, and room
@@ -151,6 +154,8 @@ Important details:
 - public player rows include `cardCount`, not private card identities
 - `showdown` is carried on the snapshot after a challenge resolves
 - `timeout` is carried on the snapshot after a turn expires
+- while `match.phase === 'showing-result'`, the result snapshot stays present
+  but `turnTimer` is intentionally absent
 - when the match ends, the snapshot includes `winnerPlayerId`
 
 The backend always treats snapshots as authoritative render state.
@@ -295,12 +300,14 @@ It does not read other hidden hands directly.
 3. decides the loser
 4. updates `handSize` or elimination using the room's `eliminationHandSize`
 5. records a showdown snapshot
-6. either:
+6. moves the match into `showing-result`
+7. blocks turn timers, player commands, and bot turns during that result hold
+8. after the shared display duration expires:
    - finishes the match if one active player remains, or
-   - immediately creates the next round
+   - creates the next round and starts its timer
 
-There is no separate paused showdown phase on the server. Instead, the showdown
-summary is attached to the next snapshot so the UI can still render it.
+The result overlay is server-owned. Clients render it from the snapshot, but
+they do not dismiss it or decide when live play resumes.
 
 ### Timing Out
 
@@ -310,7 +317,9 @@ without waiting for another socket command:
 1. the active player is marked as the round loser
 2. the shared penalty progression is applied
 3. active hands are revealed into a timeout summary snapshot
-4. the match either ends or the next round starts immediately
+4. the match moves into `showing-result`
+5. after the shared display duration expires, the match either ends or the next
+   round starts
 
 Late commands are not accepted. Before a claim, check, or pause command is
 processed, the registry first checks whether the turn clock has already expired
@@ -402,15 +411,16 @@ Current components are intentionally thin:
 - `LobbyView`: readiness, host settings controls, host-only `Add bot` button,
   and player list with bot markers
 - `TableView`: local hand, separate claim-to-beat panel, turn state,
-  authoritative countdown, host pause control, collapsed last-round result
-  panels, a unified top play strip for `Your hand`, `Selected claim`, and
-  `Claim to beat` with equal-width panels, a persistent room-chat rail with the
-  live turn clock above it, and a persistent `Check` action placed directly
-  near the claim-to-beat panel instead of inside it, plus a `Show table`
-  control in the match header that opens a left-side table drawer keeping
-  players in a stable order while rendering per-player claim history as compact
-  card previews; on mobile, the match header also exposes a `Show chat` button
-  that opens the chat and turn clock in a separate right-side drawer, and the
+  authoritative countdown, host pause control, an animated round-resolution
+  overlay that reveals hands and tries to build the spoken claim before the
+  textual result panels appear, a unified top play strip for `Your hand`,
+  `Selected claim`, and `Claim to beat` with equal-width panels, a desktop
+  left-side player panel that keeps names visible in stable seat order and uses
+  expandable rows to reveal each player's played-hand history as compact card
+  previews, a right-side room-chat rail with the live turn clock above it, and
+  a persistent `Check` action placed directly near the claim-to-beat panel
+  instead of inside it; on mobile, the match header exposes `Show table` and
+  `Show chat` buttons that open separate left and right drawers, and the
   separate `Selected claim` panel is removed from the stacked mobile layout
 - `RoomChat`: snapshot-backed chat log plus a single send-message form
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
@@ -422,7 +432,11 @@ Current components are intentionally thin:
 On narrow screens, the web app does not keep the chat rail as a stacked page
 section. The main gameplay stays full width, the unified top play strip stacks
 vertically, the table opens as an overlay drawer from the left, and the chat
-plus turn clock open as a separate drawer from the right.
+plus turn clock open as a separate drawer from the right. On desktop, the
+player list now lives in a dedicated left side panel instead of the bottom of
+the main gameplay panel. The round-result overlay also switches to a full-screen
+stacked sheet on mobile, with a sticky header, the claim construction pinned
+near the top, and the revealed player panels flowing vertically underneath.
 
 Notably, `ClaimComposer` does not let the client invent its own claim model. It
 filters the shared generated claim list against the latest `lastClaim` and only
@@ -464,8 +478,8 @@ The code currently differs from the broader planned architecture in a few ways:
 - the web app uses local component state instead of a dedicated store library
 - there are only two outbound socket event types in use:
   `roomSnapshot` and `commandRejected`
-- the server collapses `dealing` and `showdown` into immediate snapshot updates
-  instead of keeping long-lived separate phases
+- the server still collapses `dealing`, but it now keeps an explicit
+  `showing-result` hold instead of jumping straight into the next round
 - there is no rename flow, spectator flow, or kick flow
 - tests are present for shared rules, but not yet for server integration or
   browser end-to-end flows

@@ -55,8 +55,10 @@ the current round, not about a single player's private hand.
 3. The active player must act before the room's turn timer reaches zero.
 4. The host may pause or resume the live turn timer during an active match.
 5. While the game is paused, no player actions are accepted.
-6. If the next player raises, play continues clockwise.
-7. If the next player checks, the round ends in a showdown immediately.
+6. If the round is in its result-display sequence, no player actions or bot
+   actions are accepted and no turn timer is running.
+7. If the next player raises, play continues clockwise.
+8. If the next player checks, the round ends in a showdown immediately.
 
 ## Timeout Resolution
 
@@ -65,7 +67,11 @@ the current round, not about a single player's private hand.
 2. All active players reveal all of their cards for the round.
 3. No claim-validity check is performed for a timeout loss.
 4. Apply the same hand-size penalty or elimination rule as any other round loss.
-5. The round ends immediately after the timeout reveal.
+5. Show a non-dismissible result sequence for the revealed hands.
+6. After the reveal animation finishes, keep that result sequence visible for
+   an additional `5` seconds.
+7. Only after that full result-display window ends does the next round start
+   and its turn timer begin.
 
 ## Showdown Resolution
 
@@ -78,7 +84,12 @@ the current round, not about a single player's private hand.
      loses.
    - If the exact spoken claim does not exist, the claim was invalid and the
      claimant loses.
-5. The round ends immediately after the showdown.
+5. Show a non-dismissible result sequence for the revealed hands and claim
+   construction.
+6. After the reveal animation finishes, keep that result sequence visible for
+   an additional `5` seconds.
+7. Only after that full result-display window ends does the next round start
+   and its turn timer begin.
 
 ## Penalties and Elimination
 
@@ -93,8 +104,10 @@ the current round, not about a single player's private hand.
 
 ## Round Reset
 
-- Discard all revealed cards after each showdown or timeout reveal.
-- Start the next round with a freshly shuffled deck.
+- Discard all revealed cards after each showdown or timeout result-display
+  sequence finishes.
+- Start the next round with a freshly shuffled deck only after the server-owned
+  result-display window ends.
 - Keep the same seat order for the whole match.
 
 ## Claim Order Presets
@@ -203,3 +216,5 @@ Examples:
   support.
 - There is no partial reveal mechanic; showdown always reveals every active
   player's full round hand.
+- Clients may not dismiss the round-result screen early; the server controls
+  when live play resumes.
