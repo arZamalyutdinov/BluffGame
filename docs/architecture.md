@@ -16,7 +16,7 @@ This document defines the recommended v1 architecture for BluffGame: a browser-b
 - No persistence across process restarts.
 - No spectator mode in v1.
 - No bots in v1.
-- No cross-room social features, chat, or moderation tooling in v1.
+- No cross-room social features or moderation tooling in v1.
 
 ## Recommended Stack
 
@@ -79,38 +79,44 @@ React is the right choice for the browser client, but the authoritative game ser
 
 ### Core Entities
 
-- `Room`: lobby metadata, room code, host, joined seats, and lifecycle phase.
+- `Room`: lobby metadata, room code, host, joined seats, lifecycle phase, and bounded in-memory room chat history.
+- `RoomSettings`: lobby-configured elimination threshold, claim-order preset, and turn-time limit.
 - `Seat`: stable clockwise position for a player within a room.
 - `Player`: public profile, session token, connection state, elimination state, and current hand-size penalty.
+- `RoomChatMessage`: room-scoped chat entry with sender identity, text, and server timestamp.
 - `MatchState`: active players, current round number, starter rotation index, and winner state.
 - `RoundState`: dealt cards, current turn seat, current claim, claim history, and showdown result.
-- `Claim`: normalized poker-combination claim with category, comparison tuple, and suit metadata for suit-based categories.
+- `Claim`: normalized poker-combination claim with category, comparison tuple, and suit metadata for suit-based categories. Straights and straight flushes are spoken by low card, and ace-high straight flush is represented inside straight flush rather than as a separate royal-flush type.
 
 ### Important Derived Values
 
-- `handSize`: starts at `1`, increases by `1` each time a player loses a showdown, and caps at `5`.
-- `isEliminated`: true when a player loses a showdown while already at `5` cards.
+- `handSize`: starts at `1`, increases by `1` each time a player loses a showdown, and caps at the room's `eliminationHandSize`.
+- `isEliminated`: true when a player loses a showdown while already at `eliminationHandSize`.
 - `starterSeatIndex`: rotates clockwise from the previous round's starter, skipping eliminated seats.
+- `turnTimer`: server-owned timer state for the active turn, including remaining time and pause state.
 - `claimExists`: whether the exact final spoken claim can be built from the union of all revealed cards during showdown.
 
 ## Runtime Flow
 
 1. A player creates a room and becomes the host.
-2. Other players join with a room code and display name.
+2. Other players join with a room code and a room-unique display name.
 3. The host starts the match once the minimum player count is met.
 4. The server selects a random starting seat for round 1.
 5. At the start of each round, the server shuffles a standard 52-card deck and deals each active player a number of cards equal to their current `handSize`.
 6. The round starter makes the opening claim.
-7. Each next active player clockwise either raises the claim or challenges it.
-8. A challenge triggers showdown: all round cards are revealed, the server checks whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
-9. The round ends immediately after showdown, the deck is discarded, and the next round begins from the next eligible starter.
-10. The match ends when only one active player remains.
+7. The server starts an authoritative timer for the active turn.
+8. Each next active player clockwise either raises the claim or challenges it before that timer expires.
+9. A challenge triggers showdown: all round cards are revealed, the server checks whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
+10. If the timer expires first, the active player loses the round automatically and the server advances using the same penalty progression.
+11. The round ends immediately after showdown or timeout, the deck is discarded, and the next round begins from the next eligible starter.
+12. The match ends when only one active player remains.
 
 ## Backend Design
 
 ### Room Lifecycle
 
-- `lobby`: players can join, leave, rename, and ready up.
+- `lobby`: players can join, leave, ready up, and configure settings.
+- `lobby` is also where the host can update room settings.
 - `in-match`: the room contains an active `MatchState`.
 - `match-complete`: winner is shown and the host can restart or return to lobby.
 
@@ -131,9 +137,12 @@ Use explicit commands instead of direct state mutation from event handlers:
 - `join_room`
 - `leave_room`
 - `set_ready`
+- `update_room_settings`
 - `start_match`
+- `send_chat_message`
 - `submit_claim`
 - `challenge_claim`
+- `set_match_paused`
 - `restart_match`
 
 Each room should process one command at a time through a serialized queue. This keeps turn order and showdown resolution deterministic even if two clients act nearly simultaneously.
@@ -149,8 +158,8 @@ Each room should process one command at a time through a serialized queue. This 
 ### Screens
 
 - Home: create or join a room.
-- Lobby: show seats, readiness, host controls, and match start conditions.
-- Match table: show the local hand, current claimant, last claim, turn indicator, claim composer, challenge action, and elimination tracker.
+- Lobby: show seats, readiness, host controls, room settings, and match start conditions.
+- Match table: show the local hand, current claim to beat, claim history, countdown timer, host pause control, claim composer, check action, and a separate side rail for turn-ordered players plus room chat. On phones, that side rail should collapse into a stacked section below the main play area instead of staying narrow.
 - Showdown summary: reveal cards, whether the spoken claim existed, loser, next-round starter, and remaining players.
 - Match result: winner banner and restart flow.
 
@@ -180,8 +189,9 @@ Each room should process one command at a time through a serialized queue. This 
 - `cards/`: suits, ranks, deck helpers, and shuffle utilities for tests.
 - `claims/`: claim categories, serialization, comparison, and display labels.
 - `rules/`: exact-claim evaluator, suit-aware claim validation, showdown outcome logic, and elimination helpers.
-- `protocol/`: command and event schemas.
-- `state/`: room, match, round, and player TypeScript types.
+- `protocol/`: command and event schemas, including chat commands and room snapshots.
+- `settings/`: room settings defaults, supported presets, and validation helpers.
+- `state/`: room, match, round, player, and room-chat TypeScript types.
 
 ### Protocol Direction
 
@@ -192,6 +202,9 @@ Suggested client commands:
 - `submitClaim`
 - `challengeClaim`
 - `setReady`
+- `updateRoomSettings`
+- `setMatchPaused`
+- `sendChatMessage`
 - `startMatch`
 - `restartMatch`
 
@@ -212,6 +225,7 @@ Recommended room and match phases:
 - `awaiting-opening-claim`
 - `awaiting-response`
 - `showdown`
+- paused turn timer as a property on the active match, not as a separate room phase
 - `match-complete`
 
 The server may collapse some internal phases into simpler snapshots, but the domain model should preserve these distinctions so rules code stays understandable.
@@ -228,10 +242,10 @@ The server may collapse some internal phases into simpler snapshots, but the dom
 - Single-process server with in-memory rooms.
 - Max room size should stay small enough to fit one 52-card deck comfortably; `2` to `8` players is the recommended v1 range.
 - Crash or deploy restarts wipe active rooms.
+- Room chat is ephemeral and exists only in the in-memory room state.
 - Disconnects keep the player's seat reserved and rely on session-token reconnect support; active matches do not auto-remove or auto-forfeit disconnected players in v1.
 - `restart_match` returns the room to the lobby while keeping the same room code and player list.
 
 ## Open Decisions to Revisit
 
 - Whether the host can kick inactive players in v1.
-- Whether to add turn timers after the core loop is stable.

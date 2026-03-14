@@ -1,7 +1,12 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "files": {
-    "ignore": ["**/dist/**", "**/coverage/**", "**/node_modules/**"]
+    "ignore": [
+      "**/.vite/**",
+      "**/dist/**",
+      "**/coverage/**",
+      "**/node_modules/**"
+    ]
   },
   "formatter": {
     "enabled": true,

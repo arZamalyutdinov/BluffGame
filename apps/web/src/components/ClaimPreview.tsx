@@ -1,0 +1,72 @@
+import {
+  type Card,
+  type Claim,
+  RANK_LABELS,
+  SUIT_SYMBOLS,
+  claimToLabel,
+} from '@bluff-game/shared';
+
+import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+
+interface ClaimCardStackProps {
+  cards: Card[];
+  compact?: boolean;
+}
+
+export function ClaimCardStack({
+  cards,
+  compact = false,
+}: ClaimCardStackProps) {
+  return (
+    <div className={`claim-card-stack ${compact ? 'is-compact' : ''}`}>
+      {cards.map((card, index) => (
+        <div
+          key={`${card.rank}-${card.suit}-${index}`}
+          className={`claim-visual-card suit-${card.suit}`}
+        >
+          <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
+          <span className="claim-visual-suit">{SUIT_SYMBOLS[card.suit]}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+interface ClaimPreviewPanelProps {
+  label: string;
+  claim?: Claim | undefined;
+  emptyTitle: string;
+  emptyText: string;
+  helperText?: string | undefined;
+  className?: string | undefined;
+}
+
+export function ClaimPreviewPanel({
+  label,
+  claim,
+  emptyTitle,
+  emptyText,
+  helperText,
+  className,
+}: ClaimPreviewPanelProps) {
+  return (
+    <section className={`claim-visual-panel ${className ?? ''}`.trim()}>
+      <p className="claim-panel-label">{label}</p>
+
+      {claim ? (
+        <>
+          <ClaimCardStack cards={claimToIllustrationCards(claim)} />
+          <strong className="claim-panel-title">{claimToLabel(claim)}</strong>
+          {helperText ? (
+            <p className="claim-helper-text">{helperText}</p>
+          ) : null}
+        </>
+      ) : (
+        <div className="claim-panel-empty">
+          <strong className="claim-panel-title">{emptyTitle}</strong>
+          <p className="claim-helper-text">{emptyText}</p>
+        </div>
+      )}
+    </section>
+  );
+}

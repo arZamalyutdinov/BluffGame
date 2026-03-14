@@ -1,4 +1,4 @@
-export const SUITS = ['clubs', 'diamonds', 'hearts', 'spades'] as const;
+export const SUITS = ['diamonds', 'clubs', 'hearts', 'spades'] as const;
 
 export type Suit = (typeof SUITS)[number];
 
@@ -63,7 +63,7 @@ export function sortCardsDescending(cards: Card[]): Card[] {
       return right.rank - left.rank;
     }
 
-    return SUITS.indexOf(left.suit) - SUITS.indexOf(right.suit);
+    return SUITS.indexOf(right.suit) - SUITS.indexOf(left.suit);
   });
 }
 

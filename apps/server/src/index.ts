@@ -7,9 +7,12 @@ import {
   createRoomRequestSchema,
   joinRoomRequestSchema,
   roomSnapshotSchema,
+  sendChatMessageCommandSchema,
+  setMatchPausedCommandSchema,
   setReadyCommandSchema,
   socketAuthSchema,
   submitClaimCommandSchema,
+  updateRoomSettingsCommandSchema,
 } from '@bluff-game/shared';
 
 import { CommandError, RoomRegistry } from './room-registry.js';
@@ -21,7 +24,11 @@ const app = Fastify({
   logger: true,
 });
 
-const registry = new RoomRegistry();
+const registry = new RoomRegistry({
+  onAutonomousRoomUpdate: (roomCode) => {
+    broadcastRoom(roomCode);
+  },
+});
 
 await app.register(fastifyCors, {
   origin: true,
@@ -101,6 +108,17 @@ io.on('connection', async (socket) => {
     });
   });
 
+  socket.on('updateRoomSettings', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      const command = updateRoomSettingsCommandSchema.parse(payload);
+      await registry.updateRoomSettings(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
+        command,
+      );
+    });
+  });
+
   socket.on('submitClaim', async (payload) => {
     await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
       const command = submitClaimCommandSchema.parse(payload);
@@ -115,6 +133,28 @@ io.on('connection', async (socket) => {
   socket.on('challengeClaim', async () => {
     await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
       await registry.challengeClaim(auth.roomCode.toUpperCase(), auth.playerId);
+    });
+  });
+
+  socket.on('setMatchPaused', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      const command = setMatchPausedCommandSchema.parse(payload);
+      await registry.setMatchPaused(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
+        command.paused,
+      );
+    });
+  });
+
+  socket.on('sendChatMessage', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      const command = sendChatMessageCommandSchema.parse(payload);
+      await registry.sendChatMessage(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
+        command.text,
+      );
     });
   });
 

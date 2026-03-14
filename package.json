@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "pnpm --parallel --filter @bluff-game/server --filter @bluff-game/web run dev",
     "typecheck": "pnpm -r run typecheck",
-    "test": "pnpm --filter @bluff-game/shared run test",
+    "test": "pnpm -r --if-present run test",
     "lint": "biome check ."
   },
   "devDependencies": {

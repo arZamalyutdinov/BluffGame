@@ -18,6 +18,7 @@ export interface ShowdownInput {
   challengerPlayerId: string;
   handsByPlayerId: Record<string, Card[]>;
   players: PenaltyPlayerState[];
+  eliminationHandSize: number;
 }
 
 export interface ShowdownResolution {
@@ -28,7 +29,18 @@ export interface ShowdownResolution {
   updatedPlayers: PenaltyPlayerState[];
 }
 
-const ROYAL_RANKS: Rank[] = [10, 11, 12, 13, 14];
+export interface RoundLossInput {
+  loserPlayerId: string;
+  players: PenaltyPlayerState[];
+  eliminationHandSize: number;
+}
+
+export interface RoundLossResolution {
+  loserPlayerId: string;
+  loserHandSize: number;
+  loserEliminated: boolean;
+  updatedPlayers: PenaltyPlayerState[];
+}
 
 function buildRankCounts(cards: Card[]): Map<Rank, number> {
   const counts = new Map<Rank, number>();
@@ -52,17 +64,17 @@ function buildSuitGroups(cards: Card[]): Map<Suit, Card[]> {
   return groups;
 }
 
-function getStraightRanks(highRank: StraightClaim['highRank']): Rank[] {
-  if (highRank === 5) {
+function getStraightRanks(lowRank: StraightClaim['lowRank']): Rank[] {
+  if (lowRank === 1) {
     return [14, 2, 3, 4, 5];
   }
 
   return [
-    (highRank - 4) as Rank,
-    (highRank - 3) as Rank,
-    (highRank - 2) as Rank,
-    (highRank - 1) as Rank,
-    highRank,
+    lowRank as Rank,
+    (lowRank + 1) as Rank,
+    (lowRank + 2) as Rank,
+    (lowRank + 3) as Rank,
+    (lowRank + 4) as Rank,
   ];
 }
 
@@ -75,7 +87,7 @@ function hasStraight(
   cards: Card[],
   claim: StraightClaim | StraightFlushClaim,
 ): boolean {
-  return hasRanks(cards, getStraightRanks(claim.highRank));
+  return hasRanks(cards, getStraightRanks(claim.lowRank));
 }
 
 export function claimExists(cards: Card[], claim: Claim): boolean {
@@ -97,15 +109,7 @@ export function claimExists(cards: Card[], claim: Claim): boolean {
     case 'straight':
       return hasStraight(cards, claim);
     case 'flush':
-      return [...suitGroups.values()].some((group) => {
-        const eligibleCount = group.filter(
-          (card) => card.rank <= claim.highRank,
-        ).length;
-        return (
-          eligibleCount >= 5 &&
-          group.some((card) => card.rank === claim.highRank)
-        );
-      });
+      return (suitGroups.get(claim.suit)?.length ?? 0) >= 5;
     case 'full-house':
       return (
         claim.tripRank !== claim.pairRank &&
@@ -115,13 +119,7 @@ export function claimExists(cards: Card[], claim: Claim): boolean {
     case 'four-of-a-kind':
       return (rankCounts.get(claim.quadRank) ?? 0) >= 4;
     case 'straight-flush':
-      return [...suitGroups.values()].some((group) =>
-        hasStraight(group, claim),
-      );
-    case 'royal-flush':
-      return [...suitGroups.values()].some((group) =>
-        hasRanks(group, ROYAL_RANKS),
-      );
+      return hasStraight(suitGroups.get(claim.suit) ?? [], claim);
   }
 }
 
@@ -132,12 +130,28 @@ export function resolveShowdown(input: ShowdownInput): ShowdownResolution {
     ? input.challengerPlayerId
     : input.claimantPlayerId;
 
+  const penalty = applyRoundLoss({
+    loserPlayerId,
+    players: input.players,
+    eliminationHandSize: input.eliminationHandSize,
+  });
+
+  return {
+    claimWasValid,
+    loserPlayerId,
+    loserHandSize: penalty.loserHandSize,
+    loserEliminated: penalty.loserEliminated,
+    updatedPlayers: penalty.updatedPlayers,
+  };
+}
+
+export function applyRoundLoss(input: RoundLossInput): RoundLossResolution {
   const updatedPlayers = input.players.map((player) => {
-    if (player.playerId !== loserPlayerId) {
+    if (player.playerId !== input.loserPlayerId) {
       return player;
     }
 
-    if (player.handSize >= 5) {
+    if (player.handSize >= input.eliminationHandSize) {
       return {
         ...player,
         isEliminated: true,
@@ -151,16 +165,17 @@ export function resolveShowdown(input: ShowdownInput): ShowdownResolution {
   });
 
   const loser = updatedPlayers.find(
-    (player) => player.playerId === loserPlayerId,
+    (player) => player.playerId === input.loserPlayerId,
   );
 
   if (!loser) {
-    throw new Error(`Loser ${loserPlayerId} was not found in player state.`);
+    throw new Error(
+      `Loser ${input.loserPlayerId} was not found in player state.`,
+    );
   }
 
   return {
-    claimWasValid,
-    loserPlayerId,
+    loserPlayerId: input.loserPlayerId,
     loserHandSize: loser.handSize,
     loserEliminated: loser.isEliminated,
     updatedPlayers,

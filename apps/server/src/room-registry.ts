@@ -4,13 +4,21 @@ import {
   type Card,
   type Claim,
   type ClaimRecordSnapshot,
+  DEFAULT_ROOM_SETTINGS,
+  MAX_CHAT_MESSAGE_LENGTH,
+  MAX_ROOM_CHAT_MESSAGES,
   type MatchPhase,
+  type RoomChatMessageSnapshot,
+  type RoomSettings,
   type RoomSnapshot,
   type ShowdownSnapshot,
+  type TimeoutSnapshot,
+  applyRoundLoss,
   compareClaims,
   createDeck,
   dealCards,
   getNextActiveSeatIndex,
+  normalizeRoomSettings,
   parseClaimKey,
   resolveShowdown,
   roomSessionSchema,
@@ -53,15 +61,27 @@ interface RoundState {
 interface MatchState {
   phase: MatchPhase;
   round: RoundState;
+  turnTimer?: TurnTimerState | undefined;
   winnerPlayerId?: string | undefined;
   lastShowdown?: ShowdownSnapshot | undefined;
+  lastTimeout?: TimeoutSnapshot | undefined;
+}
+
+interface TurnTimerState {
+  durationSeconds: number;
+  remainingMs: number;
+  isPaused: boolean;
+  deadlineAtMs?: number | undefined;
+  pausedByPlayerId?: string | undefined;
 }
 
 interface RoomState {
   code: string;
   phase: 'lobby' | 'in-match' | 'match-complete';
   hostPlayerId: string;
+  settings: RoomSettings;
   players: PlayerState[];
+  chatMessages: RoomChatMessageSnapshot[];
   match: MatchState | undefined;
 }
 
@@ -69,6 +89,13 @@ export interface AttachConnectionResult {
   roomCode: string;
   playerId: string;
   previousSocketId?: string;
+}
+
+interface RoomRegistryOptions {
+  onAutonomousRoomUpdate?: (roomCode: string) => void;
+  now?: () => number;
+  setTimer?: typeof setTimeout;
+  clearTimer?: typeof clearTimeout;
 }
 
 function createRoomCode(): string {
@@ -90,9 +117,34 @@ function sanitizeDisplayName(value: string): string {
   return value.trim().slice(0, 24);
 }
 
+function normalizeDisplayNameKey(value: string): string {
+  return sanitizeDisplayName(value).toLowerCase();
+}
+
+function sanitizeChatMessage(value: string): string {
+  return value.trim().slice(0, MAX_CHAT_MESSAGE_LENGTH);
+}
+
 export class RoomRegistry {
   private readonly rooms = new Map<string, RoomState>();
   private readonly roomQueues = new Map<string, Promise<void>>();
+  private readonly turnTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly onAutonomousRoomUpdate:
+    | ((roomCode: string) => void)
+    | undefined;
+  private readonly now: () => number;
+  private readonly setTimer: typeof setTimeout;
+  private readonly clearTimer: typeof clearTimeout;
+
+  constructor(options: RoomRegistryOptions = {}) {
+    this.onAutonomousRoomUpdate = options.onAutonomousRoomUpdate;
+    this.now = options.now ?? Date.now;
+    this.setTimer = options.setTimer ?? setTimeout;
+    this.clearTimer = options.clearTimer ?? clearTimeout;
+  }
 
   getRoom(code: string): RoomState | undefined {
     return this.rooms.get(code);
@@ -145,7 +197,9 @@ export class RoomRegistry {
       phase: room.phase,
       selfPlayerId: viewer.playerId,
       hostPlayerId: room.hostPlayerId,
+      settings: room.settings,
       players,
+      chatMessages: [...room.chatMessages],
     };
 
     if (room.match) {
@@ -166,12 +220,37 @@ export class RoomRegistry {
         ),
       };
 
+      if (room.match.turnTimer) {
+        const remainingMs = room.match.turnTimer.isPaused
+          ? room.match.turnTimer.remainingMs
+          : Math.max(
+              0,
+              (room.match.turnTimer.deadlineAtMs ?? this.now()) - this.now(),
+            );
+
+        matchSnapshot.turnTimer = {
+          durationSeconds: room.match.turnTimer.durationSeconds,
+          remainingMs,
+          isPaused: room.match.turnTimer.isPaused,
+          ...(room.match.turnTimer.deadlineAtMs
+            ? { deadlineAtMs: room.match.turnTimer.deadlineAtMs }
+            : {}),
+          ...(room.match.turnTimer.pausedByPlayerId
+            ? { pausedByPlayerId: room.match.turnTimer.pausedByPlayerId }
+            : {}),
+        };
+      }
+
       if (room.match.round.lastClaim) {
         matchSnapshot.lastClaim = room.match.round.lastClaim;
       }
 
       if (room.match.lastShowdown) {
         matchSnapshot.showdown = room.match.lastShowdown;
+      }
+
+      if (room.match.lastTimeout) {
+        matchSnapshot.timeout = room.match.lastTimeout;
       }
 
       if (room.match.winnerPlayerId) {
@@ -202,6 +281,8 @@ export class RoomRegistry {
       code,
       phase: 'lobby',
       hostPlayerId: playerId,
+      settings: { ...DEFAULT_ROOM_SETTINGS },
+      chatMessages: [],
       match: undefined,
       players: [
         {
@@ -248,6 +329,8 @@ export class RoomRegistry {
       if (!name) {
         throw new CommandError('Display name is required.');
       }
+
+      this.assertDisplayNameAvailable(room, name);
 
       const playerId = randomUUID();
       const sessionToken = randomUUID();
@@ -342,6 +425,7 @@ export class RoomRegistry {
       );
 
       if (room.players.length === 0) {
+        this.clearTurnTimeout(code);
         this.rooms.delete(code);
         return;
       }
@@ -362,6 +446,41 @@ export class RoomRegistry {
 
       const player = this.requirePlayer(room, playerId);
       player.isReady = ready;
+    });
+  }
+
+  async updateRoomSettings(
+    code: string,
+    playerId: string,
+    settings: RoomSettings,
+  ) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+
+      if (room.phase !== 'lobby') {
+        throw new CommandError(
+          'Room settings can only change while the room is in the lobby.',
+        );
+      }
+
+      this.assertHost(room, playerId);
+
+      const nextSettings = normalizeRoomSettings(settings);
+      const settingsChanged =
+        room.settings.eliminationHandSize !==
+          nextSettings.eliminationHandSize ||
+        room.settings.claimOrderPreset !== nextSettings.claimOrderPreset ||
+        room.settings.turnTimeLimitSeconds !==
+          nextSettings.turnTimeLimitSeconds;
+
+      room.settings = nextSettings;
+
+      if (settingsChanged) {
+        room.players = room.players.map((player) => ({
+          ...player,
+          isReady: false,
+        }));
+      }
     });
   }
 
@@ -404,6 +523,59 @@ export class RoomRegistry {
         roundNumber: 1,
         starterSeatIndex,
       });
+      this.scheduleTurnTimeout(room);
+    });
+  }
+
+  async setMatchPaused(code: string, playerId: string, paused: boolean) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+      const match = this.requireActiveMatch(room);
+
+      if (this.resolveExpiredTurnIfNeeded(room)) {
+        return;
+      }
+
+      this.assertHost(room, playerId);
+
+      if (!match.turnTimer) {
+        throw new CommandError('There is no active turn timer to pause.');
+      }
+
+      if (paused) {
+        if (!match.turnTimer.isPaused) {
+          this.pauseTurnTimer(room, playerId);
+        }
+
+        return;
+      }
+
+      if (match.turnTimer.isPaused) {
+        this.resumeTurnTimer(room);
+      }
+    });
+  }
+
+  async sendChatMessage(code: string, playerId: string, text: string) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+      const player = this.requirePlayer(room, playerId);
+      const messageText = sanitizeChatMessage(text);
+
+      if (!messageText) {
+        throw new CommandError('Chat message cannot be empty.');
+      }
+
+      room.chatMessages = [
+        ...room.chatMessages,
+        {
+          messageId: randomUUID(),
+          playerId: player.playerId,
+          playerName: player.name,
+          text: messageText,
+          sentAtMs: this.now(),
+        },
+      ].slice(-MAX_ROOM_CHAT_MESSAGES);
     });
   }
 
@@ -413,6 +585,14 @@ export class RoomRegistry {
       const match = this.requireActiveMatch(room);
       const player = this.requirePlayer(room, playerId);
 
+      if (this.resolveExpiredTurnIfNeeded(room)) {
+        return;
+      }
+
+      if (match.turnTimer?.isPaused) {
+        throw new CommandError('The game is paused.');
+      }
+
       if (player.seatIndex !== match.round.currentTurnSeatIndex) {
         throw new CommandError('It is not your turn.');
       }
@@ -421,7 +601,11 @@ export class RoomRegistry {
 
       if (
         match.round.lastClaim &&
-        compareClaims(claim, match.round.lastClaim) <= 0
+        compareClaims(
+          claim,
+          match.round.lastClaim,
+          room.settings.claimOrderPreset,
+        ) <= 0
       ) {
         throw new CommandError(
           'Each claim must be strictly stronger than the previous one.',
@@ -440,6 +624,7 @@ export class RoomRegistry {
         player.seatIndex,
       );
       match.phase = 'awaiting-response';
+      this.resetTurnTimer(room);
     });
   }
 
@@ -448,6 +633,14 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
       const match = this.requireActiveMatch(room);
       const challenger = this.requirePlayer(room, playerId);
+
+      if (this.resolveExpiredTurnIfNeeded(room)) {
+        return;
+      }
+
+      if (match.turnTimer?.isPaused) {
+        throw new CommandError('The game is paused.');
+      }
 
       if (challenger.seatIndex !== match.round.currentTurnSeatIndex) {
         throw new CommandError('It is not your turn.');
@@ -463,7 +656,10 @@ export class RoomRegistry {
         challengerPlayerId: challenger.playerId,
         handsByPlayerId: match.round.handsByPlayerId,
         players: this.toPenaltyPlayerStates(room),
+        eliminationHandSize: room.settings.eliminationHandSize,
       });
+
+      this.clearTurnTimeout(code);
 
       for (const updatedPlayer of resolution.updatedPlayers) {
         const player = this.requirePlayer(room, updatedPlayer.playerId);
@@ -474,18 +670,11 @@ export class RoomRegistry {
       const remainingPlayers = room.players.filter(
         (player) => !player.isEliminated,
       );
-      const revealedHands = sortPlayersBySeat(room.players)
-        .filter(
-          (player) =>
-            !player.isEliminated ||
-            player.playerId === resolution.loserPlayerId,
-        )
-        .map((player) => ({
-          playerId: player.playerId,
-          cards: sortCardsDescending(
-            match.round.handsByPlayerId[player.playerId] ?? [],
-          ),
-        }));
+      const revealedHands = this.buildRevealedHands(
+        room,
+        match.round.handsByPlayerId,
+        resolution.loserPlayerId,
+      );
 
       if (remainingPlayers.length === 1) {
         const winner = remainingPlayers[0];
@@ -507,6 +696,8 @@ export class RoomRegistry {
           loserEliminated: resolution.loserEliminated,
           revealedHands,
         };
+        match.lastTimeout = undefined;
+        match.turnTimer = undefined;
         match.round.currentTurnSeatIndex = winner.seatIndex;
         return;
       }
@@ -537,6 +728,7 @@ export class RoomRegistry {
         starterSeatIndex: nextStarterSeatIndex,
         lastShowdown: showdown,
       });
+      this.scheduleTurnTimeout(room);
     });
   }
 
@@ -545,6 +737,7 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
       this.assertHost(room, playerId);
 
+      this.clearTurnTimeout(code);
       room.phase = 'lobby';
       room.players = room.players.map((player) => ({
         ...player,
@@ -562,6 +755,7 @@ export class RoomRegistry {
       roundNumber: number;
       starterSeatIndex: number;
       lastShowdown?: ShowdownSnapshot;
+      lastTimeout?: TimeoutSnapshot;
     },
   ): MatchState {
     const activePlayers = sortPlayersBySeat(room.players).filter(
@@ -585,8 +779,236 @@ export class RoomRegistry {
         claimHistory: [],
         handsByPlayerId,
       },
+      turnTimer: this.createRunningTurnTimer(
+        room.settings.turnTimeLimitSeconds,
+      ),
       ...(options.lastShowdown ? { lastShowdown: options.lastShowdown } : {}),
+      ...(options.lastTimeout ? { lastTimeout: options.lastTimeout } : {}),
     };
+  }
+
+  private createRunningTurnTimer(durationSeconds: number): TurnTimerState {
+    const remainingMs = durationSeconds * 1000;
+
+    return {
+      durationSeconds,
+      remainingMs,
+      isPaused: false,
+      deadlineAtMs: this.now() + remainingMs,
+    };
+  }
+
+  private resetTurnTimer(room: RoomState) {
+    if (!room.match) {
+      return;
+    }
+
+    room.match.turnTimer = this.createRunningTurnTimer(
+      room.settings.turnTimeLimitSeconds,
+    );
+    this.scheduleTurnTimeout(room);
+  }
+
+  private pauseTurnTimer(room: RoomState, pausedByPlayerId: string) {
+    if (!room.match?.turnTimer || room.match.turnTimer.isPaused) {
+      return;
+    }
+
+    room.match.turnTimer = {
+      durationSeconds: room.match.turnTimer.durationSeconds,
+      remainingMs: Math.max(
+        0,
+        (room.match.turnTimer.deadlineAtMs ?? this.now()) - this.now(),
+      ),
+      isPaused: true,
+      pausedByPlayerId,
+    };
+    this.clearTurnTimeout(room.code);
+  }
+
+  private resumeTurnTimer(room: RoomState) {
+    if (!room.match?.turnTimer || !room.match.turnTimer.isPaused) {
+      return;
+    }
+
+    room.match.turnTimer = {
+      durationSeconds: room.match.turnTimer.durationSeconds,
+      remainingMs: room.match.turnTimer.remainingMs,
+      isPaused: false,
+      deadlineAtMs: this.now() + room.match.turnTimer.remainingMs,
+    };
+    this.scheduleTurnTimeout(room);
+  }
+
+  private scheduleTurnTimeout(room: RoomState) {
+    this.clearTurnTimeout(room.code);
+
+    if (
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase === 'match-complete' ||
+      !room.match.turnTimer ||
+      room.match.turnTimer.isPaused ||
+      room.match.turnTimer.deadlineAtMs === undefined
+    ) {
+      return;
+    }
+
+    const delayMs = Math.max(0, room.match.turnTimer.deadlineAtMs - this.now());
+    const handle = this.setTimer(() => {
+      this.turnTimers.delete(room.code);
+      void this.handleTurnTimeout(room.code);
+    }, delayMs);
+    this.turnTimers.set(room.code, handle);
+  }
+
+  private clearTurnTimeout(code: string) {
+    const handle = this.turnTimers.get(code);
+
+    if (!handle) {
+      return;
+    }
+
+    this.clearTimer(handle);
+    this.turnTimers.delete(code);
+  }
+
+  private async handleTurnTimeout(code: string) {
+    let shouldBroadcast = false;
+
+    await this.withRoomLock(code, () => {
+      const room = this.rooms.get(code);
+
+      shouldBroadcast = this.resolveTurnTimeout(room);
+    });
+
+    if (shouldBroadcast) {
+      this.onAutonomousRoomUpdate?.(code);
+    }
+  }
+
+  private buildRevealedHands(
+    room: RoomState,
+    handsByPlayerId: Record<string, Card[]>,
+    loserPlayerId: string,
+  ) {
+    return sortPlayersBySeat(room.players)
+      .filter(
+        (player) => !player.isEliminated || player.playerId === loserPlayerId,
+      )
+      .map((player) => ({
+        playerId: player.playerId,
+        cards: sortCardsDescending(handsByPlayerId[player.playerId] ?? []),
+      }));
+  }
+
+  private resolveExpiredTurnIfNeeded(room: RoomState): boolean {
+    if (
+      room.phase !== 'in-match' ||
+      !room.match?.turnTimer ||
+      room.match.turnTimer.isPaused ||
+      room.match.turnTimer.deadlineAtMs === undefined ||
+      room.match.turnTimer.deadlineAtMs > this.now()
+    ) {
+      return false;
+    }
+
+    this.clearTurnTimeout(room.code);
+    return this.resolveTurnTimeout(room);
+  }
+
+  private resolveTurnTimeout(room: RoomState | undefined): boolean {
+    if (
+      !room ||
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase === 'match-complete' ||
+      !room.match.turnTimer ||
+      room.match.turnTimer.isPaused ||
+      room.match.turnTimer.deadlineAtMs === undefined ||
+      room.match.turnTimer.deadlineAtMs > this.now()
+    ) {
+      return false;
+    }
+
+    const match = room.match;
+    const timedOutPlayer = this.requirePlayerBySeat(
+      room,
+      match.round.currentTurnSeatIndex,
+    );
+    const resolution = applyRoundLoss({
+      loserPlayerId: timedOutPlayer.playerId,
+      players: this.toPenaltyPlayerStates(room),
+      eliminationHandSize: room.settings.eliminationHandSize,
+    });
+
+    for (const updatedPlayer of resolution.updatedPlayers) {
+      const player = this.requirePlayer(room, updatedPlayer.playerId);
+      player.handSize = updatedPlayer.handSize;
+      player.isEliminated = updatedPlayer.isEliminated;
+    }
+
+    const revealedHands = this.buildRevealedHands(
+      room,
+      match.round.handsByPlayerId,
+      resolution.loserPlayerId,
+    );
+    const remainingPlayers = room.players.filter(
+      (player) => !player.isEliminated,
+    );
+
+    if (remainingPlayers.length === 1) {
+      const winner = remainingPlayers[0];
+
+      if (!winner) {
+        throw new CommandError('A winning player could not be determined.');
+      }
+
+      room.phase = 'match-complete';
+      match.phase = 'match-complete';
+      match.winnerPlayerId = winner.playerId;
+      match.lastShowdown = undefined;
+      match.lastTimeout = {
+        timedOutPlayerId: timedOutPlayer.playerId,
+        loserHandSize: resolution.loserHandSize,
+        loserEliminated: resolution.loserEliminated,
+        ...(match.round.lastClaim ? { lastClaim: match.round.lastClaim } : {}),
+        ...(match.round.lastClaimantPlayerId
+          ? { lastClaimantPlayerId: match.round.lastClaimantPlayerId }
+          : {}),
+        revealedHands,
+      };
+      match.turnTimer = undefined;
+      match.round.currentTurnSeatIndex = winner.seatIndex;
+
+      return true;
+    }
+
+    const nextStarterSeatIndex = getNextActiveSeatIndex(
+      this.toPenaltyPlayerStates(room),
+      match.round.starterSeatIndex,
+    );
+    const timeout: TimeoutSnapshot = {
+      timedOutPlayerId: timedOutPlayer.playerId,
+      loserHandSize: resolution.loserHandSize,
+      loserEliminated: resolution.loserEliminated,
+      ...(match.round.lastClaim ? { lastClaim: match.round.lastClaim } : {}),
+      ...(match.round.lastClaimantPlayerId
+        ? { lastClaimantPlayerId: match.round.lastClaimantPlayerId }
+        : {}),
+      revealedHands,
+      nextStarterPlayerId: this.requirePlayerBySeat(room, nextStarterSeatIndex)
+        .playerId,
+    };
+
+    room.phase = 'in-match';
+    room.match = this.createRound(room, {
+      roundNumber: match.round.roundNumber + 1,
+      starterSeatIndex: nextStarterSeatIndex,
+      lastTimeout: timeout,
+    });
+    this.scheduleTurnTimeout(room);
+    return true;
   }
 
   private toPenaltyPlayerStates(room: RoomState) {
@@ -643,6 +1065,19 @@ export class RoomRegistry {
   private assertHost(room: RoomState, playerId: string) {
     if (room.hostPlayerId !== playerId) {
       throw new CommandError('Only the host can do that.');
+    }
+  }
+
+  private assertDisplayNameAvailable(room: RoomState, name: string) {
+    const normalizedName = normalizeDisplayNameKey(name);
+    const duplicate = room.players.find(
+      (player) => normalizeDisplayNameKey(player.name) === normalizedName,
+    );
+
+    if (duplicate) {
+      throw new CommandError(
+        'That display name is already in use in this room.',
+      );
     }
   }
 
