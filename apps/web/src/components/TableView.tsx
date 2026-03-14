@@ -569,6 +569,9 @@ export function TableView({
                           ★
                         </span>
                       ) : null}
+                      {player.isBot ? (
+                        <span className="pill bot">bot</span>
+                      ) : null}
                     </div>
 
                     {player.playerId === snapshot.selfPlayerId ? (

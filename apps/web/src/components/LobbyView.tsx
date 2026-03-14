@@ -13,6 +13,7 @@ interface LobbyViewProps {
   isConnected: boolean;
   pendingCommand: string | null;
   onSetReady: (ready: boolean) => void;
+  onAddBot: () => void;
   onStartMatch: () => void;
   onLeaveRoom: () => void;
   onUpdateSettings: (settings: RoomSnapshot['settings']) => void;
@@ -23,6 +24,7 @@ export function LobbyView({
   isConnected,
   pendingCommand,
   onSetReady,
+  onAddBot,
   onStartMatch,
   onLeaveRoom,
   onUpdateSettings,
@@ -35,6 +37,7 @@ export function LobbyView({
     snapshot.players.every((player) => player.isReady);
   const isHost = snapshot.hostPlayerId === snapshot.selfPlayerId;
   const controlsDisabled = !isConnected || pendingCommand !== null;
+  const roomIsFull = snapshot.players.length >= 8;
 
   if (!self) {
     return null;
@@ -61,6 +64,17 @@ export function LobbyView({
           >
             {self.isReady ? 'Mark not ready' : 'Mark ready'}
           </button>
+
+          {isHost ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={onAddBot}
+              disabled={controlsDisabled || roomIsFull}
+            >
+              Add bot
+            </button>
+          ) : null}
 
           {isHost ? (
             <button
@@ -196,15 +210,22 @@ export function LobbyView({
           {snapshot.players.map((player) => (
             <li key={player.playerId} className="player-row">
               <div>
-                <strong>{player.name}</strong>
+                <div className="player-name-row">
+                  <strong>{player.name}</strong>
+                  {player.isHost ? (
+                    <span className="host-star" aria-label="Host">
+                      ★
+                    </span>
+                  ) : null}
+                </div>
                 <p className="row-meta">
                   Seat {player.seatIndex + 1}
-                  {player.isHost ? ' • host' : ''}
                   {player.playerId === snapshot.selfPlayerId ? ' • you' : ''}
                 </p>
               </div>
 
               <div className="status-pills">
+                {player.isBot ? <span className="pill bot">bot</span> : null}
                 <span className={player.isReady ? 'pill ready' : 'pill idle'}>
                   {player.isReady ? 'ready' : 'waiting'}
                 </span>

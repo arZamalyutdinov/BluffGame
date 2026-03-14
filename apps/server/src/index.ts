@@ -8,6 +8,7 @@ import Fastify, { type FastifyReply } from 'fastify';
 import { Server, type Socket } from 'socket.io';
 
 import {
+  addBotCommandSchema,
   commandRejectedEventSchema,
   createRoomRequestSchema,
   joinRoomRequestSchema,
@@ -150,6 +151,13 @@ io.on('connection', async (socket) => {
   socket.on('startMatch', async () => {
     await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
       await registry.startMatch(auth.roomCode.toUpperCase(), auth.playerId);
+    });
+  });
+
+  socket.on('addBot', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      addBotCommandSchema.parse(payload);
+      await registry.addBot(auth.roomCode.toUpperCase(), auth.playerId);
     });
   });
 

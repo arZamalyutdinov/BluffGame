@@ -304,6 +304,14 @@ export function ClaimComposer({
                     onChange: (nextClaim) =>
                       setSelectedClaimKey(claimToKey(nextClaim)),
                   })}
+
+                  <button
+                    type="submit"
+                    className="primary-button claim-inline-submit"
+                    disabled={disabled || !selectedClaimKey}
+                  >
+                    Submit claim
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -335,7 +343,7 @@ export function ClaimComposer({
 
         <button
           type="submit"
-          className="primary-button"
+          className="primary-button claim-footer-submit"
           disabled={disabled || !selectedClaimKey}
         >
           Submit claim

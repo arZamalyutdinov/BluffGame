@@ -123,6 +123,11 @@ export const setReadyCommandSchema = z.object({
   ready: z.boolean(),
 });
 
+export const addBotCommandSchema = z
+  .object({})
+  .optional()
+  .transform(() => ({}));
+
 export const submitClaimCommandSchema = z.object({
   claimKey: z.string().min(1),
 });
@@ -183,6 +188,7 @@ export const roomSnapshotSchema = z.object({
       name: z.string().min(1),
       seatIndex: z.number().int().min(0),
       isHost: z.boolean(),
+      isBot: z.boolean(),
       isReady: z.boolean(),
       connectionStatus: z.enum(['connected', 'disconnected']),
       handSize: z.number().int().min(1).max(MAX_ELIMINATION_HAND_SIZE),

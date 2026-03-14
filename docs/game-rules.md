@@ -5,6 +5,9 @@
 - Use one standard 52-card deck with no jokers.
 - Support `2` to `8` players in v1.
 - Seat players in a fixed clockwise order when they join the room.
+- While the room is in the lobby, the host may add bots to fill open seats.
+- Bots use the same information limits as human players: their own hand, public
+  room state, and the unseen remainder of the deck.
 - Each player starts the match with a `handSize` of `1`.
 
 ## Room Settings
@@ -19,7 +22,8 @@ lobby:
 - `turnTimeLimitSeconds`: the maximum time allowed for the active player to act.
   Supported range: `15` to `120`. Default: `60`.
 
-Changing any setting resets all lobby ready states.
+Changing any setting resets all human lobby ready states. Bots stay ready
+automatically.
 
 ## Match Objective
 

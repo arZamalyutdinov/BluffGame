@@ -15,7 +15,6 @@ This document defines the recommended v1 architecture for BluffGame: a browser-b
 
 - No persistence across process restarts.
 - No spectator mode in v1.
-- No bots in v1.
 - No cross-room social features or moderation tooling in v1.
 
 ## Recommended Stack
@@ -79,10 +78,12 @@ React is the right choice for the browser client, but the authoritative game ser
 
 ### Core Entities
 
-- `Room`: lobby metadata, room code, host, joined seats, lifecycle phase, and bounded in-memory room chat history.
+- `Room`: lobby metadata, room code, host, joined seats, lifecycle phase,
+  optional host-added bots, and bounded in-memory room chat history.
 - `RoomSettings`: lobby-configured elimination threshold, claim-order preset, and turn-time limit.
 - `Seat`: stable clockwise position for a player within a room.
-- `Player`: public profile, session token, connection state, elimination state, and current hand-size penalty.
+- `Player`: public profile, session token, human-or-bot identity, connection
+  state, elimination state, and current hand-size penalty.
 - `RoomChatMessage`: room-scoped chat entry with sender identity, text, and server timestamp.
 - `MatchState`: active players, current round number, starter rotation index, and winner state.
 - `RoundState`: dealt cards, current turn seat, current claim, claim history, and showdown result.
@@ -100,16 +101,17 @@ React is the right choice for the browser client, but the authoritative game ser
 
 1. A player creates a room and becomes the host.
 2. Other players join with a room code and a room-unique display name.
-3. The host starts the match once the minimum player count is met.
-4. The server selects a random starting seat for round 1.
-5. At the start of each round, the server shuffles a standard 52-card deck and deals each active player a number of cards equal to their current `handSize`.
-6. The round starter makes the opening claim.
-7. The server starts an authoritative timer for the active turn.
-8. Each next active player clockwise either raises the claim or challenges it before that timer expires.
-9. A challenge triggers showdown: all round cards are revealed, the server checks whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
-10. If the timer expires first, the active player loses the round automatically and the server advances using the same penalty progression.
-11. The round ends immediately after showdown or timeout, the deck is discarded, and the next round begins from the next eligible starter.
-12. The match ends when only one active player remains.
+3. The host may add bots in the lobby until the room reaches its seat cap.
+4. The host starts the match once the minimum player count is met.
+5. The server selects a random starting seat for round 1.
+6. At the start of each round, the server shuffles a standard 52-card deck and deals each active player a number of cards equal to their current `handSize`.
+7. The round starter makes the opening claim.
+8. The server starts an authoritative timer for the active turn.
+9. Each next active player clockwise either raises the claim or challenges it before that timer expires.
+10. A challenge triggers showdown: all round cards are revealed, the server checks whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
+11. If the timer expires first, the active player loses the round automatically and the server advances using the same penalty progression.
+12. The round ends immediately after showdown or timeout, the deck is discarded, and the next round begins from the next eligible starter.
+13. The match ends when only one active player remains.
 
 ## Backend Design
 
@@ -137,6 +139,7 @@ Use explicit commands instead of direct state mutation from event handlers:
 - `join_room`
 - `leave_room`
 - `set_ready`
+- `add_bot`
 - `update_room_settings`
 - `start_match`
 - `send_chat_message`
@@ -158,8 +161,9 @@ Each room should process one command at a time through a serialized queue. This 
 ### Screens
 
 - Home: create or join a room.
-- Lobby: show seats, readiness, host controls, room settings, and match start conditions.
-- Match table: show `Your hand`, `Selected claim`, and `Claim to beat` in that order as a unified top play strip with exactly matched panel widths. Keep an always-visible `Check` action close to the claim-to-beat panel, but outside the panel itself, then place the claim composer underneath as the control surface for the selected-claim panel. Keep a persistent side rail that houses room chat plus the live turn clock. The player table should be opened from a `Show table` control in the match header, slide in from the left, keep a stable player order, and render per-player claim history as compact card previews instead of plain text. On smartphones, keep the top play strip stacked vertically, move both the table and chat into on-demand slide-in panels controlled by `Show table` and `Show chat`, and expand the exact rank/suit selectors directly under the active claim category instead of keeping one shared control block at the bottom. The last showdown/timeout details can stay collapsed until opened.
+- Lobby: show seats, readiness, host controls, room settings, optional bot
+  seats, and match start conditions.
+- Match table: show `Your hand`, `Selected claim`, and `Claim to beat` in that order as a unified top play strip with exactly matched panel widths. Keep an always-visible `Check` action close to the claim-to-beat panel, but outside the panel itself, then place the claim composer underneath as the control surface for the selected-claim panel. Keep a persistent side rail that houses room chat plus the live turn clock. The player table should be opened from a `Show table` control in the match header, slide in from the left, keep a stable player order, and render per-player claim history as compact card previews instead of plain text. On smartphones, keep only `Your hand` and `Claim to beat` in the stacked top strip, remove the separate `Selected claim` panel, move both the table and chat into on-demand slide-in panels controlled by `Show table` and `Show chat`, expand the exact rank/suit selectors directly under the active claim category instead of keeping one shared control block at the bottom, and place the submit action directly under those inline mobile selectors. The last showdown/timeout details can stay collapsed until opened.
 - Showdown summary: reveal cards, whether the spoken claim existed, loser, next-round starter, and remaining players.
 - Match result: winner banner and restart flow.
 
@@ -202,6 +206,7 @@ Suggested client commands:
 - `submitClaim`
 - `challengeClaim`
 - `setReady`
+- `addBot`
 - `updateRoomSettings`
 - `setMatchPaused`
 - `sendChatMessage`
@@ -215,6 +220,15 @@ Suggested server events:
 - `roundStarted`
 - `showdownResolved`
 - `matchFinished`
+
+## Bot Policy
+
+- Bots are server-driven but not omniscient.
+- A bot may use its own hand, public room settings, public hand sizes, public
+  claim history, public past outcomes, and probability estimates over unseen
+  cards.
+- A bot may not inspect other players' hidden hands when deciding whether to
+  raise or check.
 
 ## Match State Machine
 
