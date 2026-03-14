@@ -207,7 +207,9 @@ function broadcastRoom(roomCode: string) {
 
 function sendBuiltWebIndex(reply: FastifyReply) {
   if (!BUILT_WEB_INDEX) {
-    return reply.code(503).send({ message: 'Built web client is unavailable.' });
+    return reply
+      .code(503)
+      .send({ message: 'Built web client is unavailable.' });
   }
 
   return reply
