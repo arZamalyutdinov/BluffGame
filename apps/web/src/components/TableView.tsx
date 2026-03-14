@@ -117,7 +117,7 @@ export function TableView({
                     onClick={onChallengeClaim}
                     disabled={!isConnected || pendingCommand !== null}
                   >
-                    Challenge claim
+                    Check
                   </button>
                 ) : null}
               </>
