@@ -1,0 +1,4 @@
+interface:
+  display_name: "BluffGame Dev"
+  short_description: "Repo guide for BluffGame agents"
+  default_prompt: "Use $bluff-game-dev to plan or implement BluffGame work in this repository."
