@@ -331,10 +331,12 @@ Current components are intentionally thin:
 
 - `LobbyView`: readiness, start button, player list
 - `TableView`: local hand, claim history, turn state, showdown summary
-- `ClaimComposer`: dropdown of legal higher claims built from `ALL_CLAIMS`
+- `ClaimComposer`: compact category pills plus card-style previews and filtered
+  rank controls built from `ALL_CLAIMS`
 
 Notably, `ClaimComposer` does not let the client invent its own claim model. It
-filters the shared precomputed claim list against the latest `lastClaim`.
+filters the shared precomputed claim list against the latest `lastClaim` and
+only submits the resulting shared `claimKey`.
 
 ## Privacy Model
 
