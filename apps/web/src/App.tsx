@@ -4,6 +4,7 @@ import {
   Link,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from 'react-router-dom';
@@ -33,6 +34,9 @@ interface RoomConnectionState {
 }
 
 function AppShell() {
+  const location = useLocation();
+  const isRoomRoute = location.pathname.startsWith('/rooms/');
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -41,7 +45,9 @@ function AppShell() {
         </Link>
       </header>
 
-      <main className="page-shell">
+      <main
+        className={isRoomRoute ? 'page-shell page-shell-room' : 'page-shell'}
+      >
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/rooms/:roomCode" element={<RoomPage />} />
