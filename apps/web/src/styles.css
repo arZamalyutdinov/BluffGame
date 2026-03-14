@@ -352,6 +352,217 @@ h2 {
   background: rgba(255, 255, 255, 0.42);
 }
 
+.claim-builder {
+  gap: 1rem;
+}
+
+.claim-builder-header,
+.claim-builder-body,
+.claim-builder-footer,
+.claim-visual-panel,
+.claim-panel-empty {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.claim-visual-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.claim-visual-panel,
+.claim-locked-state {
+  padding: 0.95rem;
+  border: 1px solid rgba(23, 49, 62, 0.12);
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.46);
+}
+
+.claim-panel-label,
+.claim-option-label {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.claim-panel-title {
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.claim-helper-text,
+.claim-minimum-note {
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.claim-card-stack {
+  display: flex;
+  align-items: flex-start;
+  min-height: 5rem;
+}
+
+.claim-card-stack.is-compact {
+  min-height: 2.7rem;
+}
+
+.claim-card-stack .claim-visual-card + .claim-visual-card {
+  margin-left: -0.95rem;
+}
+
+.claim-card-stack.is-compact .claim-visual-card + .claim-visual-card {
+  margin-left: -0.6rem;
+}
+
+.claim-visual-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 3.4rem;
+  height: 4.8rem;
+  padding: 0.38rem;
+  border: 1px solid rgba(23, 49, 62, 0.12);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 10px 24px rgba(65, 39, 0, 0.08);
+  font-family: "IBM Plex Mono", monospace;
+  line-height: 1;
+}
+
+.claim-card-stack.is-compact .claim-visual-card {
+  width: 2.1rem;
+  height: 3rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+}
+
+.claim-visual-rank {
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.claim-visual-suit {
+  align-self: flex-end;
+  font-size: 1rem;
+}
+
+.claim-card-stack.is-compact .claim-visual-rank,
+.claim-card-stack.is-compact .claim-visual-suit {
+  font-size: 0.68rem;
+}
+
+.composer-eyebrow {
+  margin-bottom: 0.2rem;
+}
+
+.claim-category-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.claim-category-button {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 4rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid rgba(23, 49, 62, 0.12);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.54);
+  color: var(--muted);
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background-color
+    140ms ease, color 140ms ease;
+}
+
+.claim-category-button:hover {
+  transform: translateY(-1px);
+  color: var(--primary);
+}
+
+.claim-category-button.is-active {
+  border-color: rgba(23, 49, 62, 0.28);
+  background: rgba(23, 49, 62, 0.1);
+  color: var(--primary);
+  box-shadow: inset 0 0 0 1px rgba(23, 49, 62, 0.06);
+}
+
+.claim-category-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+  transform: none;
+}
+
+.claim-category-label {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.claim-category-empty {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 2.1rem;
+  height: 3rem;
+  border: 1px dashed rgba(23, 49, 62, 0.16);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.36);
+  font-family: "IBM Plex Mono", monospace;
+}
+
+.claim-option-group {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.claim-option-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.claim-rank-button {
+  min-width: 3rem;
+  min-height: 3rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgba(23, 49, 62, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--ink);
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, background-color
+    140ms ease;
+}
+
+.claim-rank-button:hover {
+  transform: translateY(-1px);
+}
+
+.claim-rank-button.is-active {
+  border-color: rgba(215, 123, 69, 0.4);
+  background: rgba(215, 123, 69, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(215, 123, 69, 0.12);
+}
+
+.claim-rank-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.claim-builder-footer {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
 .revealed-hands {
   display: grid;
   gap: 0.75rem;
@@ -383,6 +594,14 @@ h2 {
 @media (max-width: 900px) {
   .home-grid,
   .table-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-visual-row {
+    grid-template-columns: 1fr;
+  }
+
+  .claim-builder-footer {
     grid-template-columns: 1fr;
   }
 
