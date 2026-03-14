@@ -59,12 +59,7 @@ export function RoomChat({
   return (
     <section className="side-panel-section room-chat">
       <div className="side-panel-header">
-        <div>
-          <h2>Room chat</h2>
-          <p className="claim-helper-text">
-            In-memory per room. It clears when the server restarts.
-          </p>
-        </div>
+        <h2>Room chat</h2>
 
         <span className={isConnected ? 'pill connected' : 'pill idle'}>
           {isConnected ? 'connected' : 'offline'}

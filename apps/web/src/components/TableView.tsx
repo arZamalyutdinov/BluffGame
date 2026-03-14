@@ -167,9 +167,6 @@ export function TableView({
       ? turnTimer.remainingMs
       : Math.max(0, turnTimer.deadlineAtMs - nowMs)
     : null;
-  const pausedBy = turnTimer?.pausedByPlayerId
-    ? playersById.get(turnTimer.pausedByPlayerId)
-    : undefined;
   const isPaused = turnTimer?.isPaused ?? false;
   const actionDisabled =
     !isConnected || pendingCommand !== null || isPaused || remainingMs === 0;
@@ -379,15 +376,15 @@ export function TableView({
         {turnTimer && remainingMs !== null && !winner ? (
           <section className="side-panel-section side-panel-card turn-timer-panel turn-timer-side-panel">
             <div className="turn-timer-header">
-              <div>
-                <h2>Turn clock</h2>
-                <p className="claim-helper-text">
-                  {currentPlayer?.name ?? 'The active player'} must act before
-                  the timer expires.
-                </p>
-              </div>
+              <h2>Turn clock</h2>
+            </div>
 
-              {isHost ? (
+            <div className={`turn-timer-value ${isPaused ? 'is-paused' : ''}`}>
+              {formatRemainingMs(remainingMs)}
+            </div>
+
+            {isHost ? (
+              <div className="turn-timer-actions">
                 <button
                   type="button"
                   className="ghost-button"
@@ -396,29 +393,14 @@ export function TableView({
                 >
                   {isPaused ? 'Resume clock' : 'Pause clock'}
                 </button>
-              ) : null}
-            </div>
-
-            <div className={`turn-timer-value ${isPaused ? 'is-paused' : ''}`}>
-              {formatRemainingMs(remainingMs)}
-            </div>
-
-            <p className="claim-helper-text">
-              {isPaused
-                ? `Paused by ${pausedBy?.name ?? 'the host'}. No one can act until the clock resumes.`
-                : 'If the clock reaches zero, the active player loses the round automatically.'}
-            </p>
+              </div>
+            ) : null}
           </section>
         ) : null}
 
         <section className="side-panel-section">
           <div className="side-panel-header">
-            <div>
-              <h2>Table</h2>
-              <p className="claim-helper-text">
-                Players are listed from the active turn clockwise.
-              </p>
-            </div>
+            <h2>Table</h2>
 
             <span className="pill connected">
               {activePlayersInOrder.length} active

@@ -69,17 +69,21 @@ select {
   padding: 1.5rem 0 3rem;
 }
 
+.page-shell-room {
+  width: min(1440px, calc(100vw - 2rem));
+}
+
 .surface-grid {
   display: grid;
   gap: 1.25rem;
 }
 
 .match-layout {
-  grid-template-columns: minmax(16rem, 18rem) minmax(0, 1fr) minmax(
-      16.5rem,
-      19rem
+  grid-template-columns: minmax(14rem, 15.5rem) minmax(0, 1fr) minmax(
+      18rem,
+      20rem
     );
-  grid-template-areas: "chat main table";
+  grid-template-areas: "table main chat";
   align-items: start;
 }
 
@@ -372,11 +376,12 @@ h2 {
 }
 
 .turn-timer-header {
+  display: block;
+}
+
+.turn-timer-actions {
   display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  align-items: center;
+  justify-content: flex-start;
 }
 
 .turn-timer-value {
