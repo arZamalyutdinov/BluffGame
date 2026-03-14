@@ -47,6 +47,10 @@ The web app talks to the backend in two ways:
 The Vite config proxies `/api` and `/socket.io` to the backend during
 development, so the browser only needs to know about the frontend origin.
 
+In production, the Fastify server can also serve the built Vite client from
+`apps/web/dist`. That lets the app run as a single Node web service on hosts
+like Render while keeping the development workflow split into two processes.
+
 ## Shared Package Responsibilities
 
 `packages/shared` is the contract layer between the server and client.
@@ -77,6 +81,7 @@ only renders shared types and sends commands.
 - `/health`
 - `POST /api/rooms`
 - `POST /api/rooms/:roomCode/join`
+- serving the built web client when `apps/web/dist` exists
 - Socket.IO connection handling
 
 The entrypoint does very little game logic directly. It delegates almost all

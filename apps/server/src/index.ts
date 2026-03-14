@@ -1,3 +1,8 @@
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { dirname, extname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import fastifyCors from '@fastify/cors';
 import Fastify, { type FastifyReply } from 'fastify';
 import { Server, type Socket } from 'socket.io';
@@ -16,6 +21,14 @@ import { CommandError, RoomRegistry } from './room-registry.js';
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.HOST ?? '0.0.0.0';
+const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
+const WEB_DIST_DIR = resolve(CURRENT_DIR, '../../web/dist');
+const WEB_DIST_INDEX = resolve(WEB_DIST_DIR, 'index.html');
+const WEB_DIST_ASSETS = resolve(WEB_DIST_DIR, 'assets');
+const HAS_BUILT_WEB = existsSync(WEB_DIST_INDEX);
+const BUILT_WEB_INDEX = HAS_BUILT_WEB
+  ? await readFile(WEB_DIST_INDEX, 'utf8')
+  : null;
 
 const app = Fastify({
   logger: true,
@@ -54,6 +67,38 @@ app.post('/api/rooms/:roomCode/join', async (request, reply) => {
     return sendHttpError(reply, error);
   }
 });
+
+if (HAS_BUILT_WEB) {
+  app.get('/', async (_request, reply) => sendBuiltWebIndex(reply));
+
+  app.get('/rooms/:roomCode', async (_request, reply) =>
+    sendBuiltWebIndex(reply),
+  );
+
+  app.get('/assets/*', async (request, reply) => {
+    const assetPath = resolveBuiltWebAsset(
+      String((request.params as { '*': string })['*'] ?? ''),
+    );
+
+    if (!assetPath) {
+      return reply.code(404).send({ message: 'Asset not found.' });
+    }
+
+    try {
+      const asset = await readFile(assetPath);
+      return reply
+        .header('Cache-Control', 'public, max-age=31536000, immutable')
+        .type(getContentType(assetPath))
+        .send(asset);
+    } catch {
+      return reply.code(404).send({ message: 'Asset not found.' });
+    }
+  });
+
+  app.log.info('Serving built web client from apps/web/dist.');
+} else {
+  app.log.info('Built web client not found; serving API and Socket.IO only.');
+}
 
 const io = new Server(app.server, {
   cors: {
@@ -157,6 +202,64 @@ function broadcastRoom(roomCode: string) {
       registry.buildSnapshot(roomCode, recipient.playerId),
     );
     io.to(recipient.socketId).emit('roomSnapshot', snapshot);
+  }
+}
+
+function sendBuiltWebIndex(reply: FastifyReply) {
+  if (!BUILT_WEB_INDEX) {
+    return reply
+      .code(503)
+      .send({ message: 'Built web client is unavailable.' });
+  }
+
+  return reply
+    .header('Cache-Control', 'no-cache')
+    .type('text/html; charset=utf-8')
+    .send(BUILT_WEB_INDEX);
+}
+
+function resolveBuiltWebAsset(assetName: string) {
+  if (!assetName) {
+    return null;
+  }
+
+  const assetPath = resolve(WEB_DIST_ASSETS, assetName);
+  const relativePath = relative(WEB_DIST_ASSETS, assetPath);
+
+  if (relativePath.startsWith('..') || relativePath === '') {
+    return null;
+  }
+
+  return assetPath;
+}
+
+function getContentType(filePath: string) {
+  switch (extname(filePath)) {
+    case '.css':
+      return 'text/css; charset=utf-8';
+    case '.html':
+      return 'text/html; charset=utf-8';
+    case '.ico':
+      return 'image/x-icon';
+    case '.jpeg':
+    case '.jpg':
+      return 'image/jpeg';
+    case '.js':
+      return 'text/javascript; charset=utf-8';
+    case '.json':
+      return 'application/json; charset=utf-8';
+    case '.map':
+      return 'application/json; charset=utf-8';
+    case '.png':
+      return 'image/png';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.webp':
+      return 'image/webp';
+    case '.woff2':
+      return 'font/woff2';
+    default:
+      return 'application/octet-stream';
   }
 }
 
