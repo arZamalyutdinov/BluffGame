@@ -396,15 +396,18 @@ Current components are intentionally thin:
   near the claim-to-beat panel instead of inside it, plus a `Show table`
   control in the match header that opens a left-side table drawer keeping
   players in a stable order while rendering per-player claim history as compact
-  card previews
+  card previews; on mobile, the match header also exposes a `Show chat` button
+  that opens the chat and turn clock in a separate right-side drawer
 - `RoomChat`: snapshot-backed chat log plus a single send-message form
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
-  from the room's selected claim-order preset
+  from the room's selected claim-order preset; on mobile, the active category
+  expands inline to reveal its exact rank or suit selectors directly beneath
+  that category instead of using the shared bottom control block
 
-On narrow screens, the web app does not keep the chat rail or table drawer as
-narrow columns. The main gameplay stays full width, chat stacks below it, the
-table still opens as an overlay drawer from the left, and the unified top play
-strip stacks vertically.
+On narrow screens, the web app does not keep the chat rail as a stacked page
+section. The main gameplay stays full width, the unified top play strip stacks
+vertically, the table opens as an overlay drawer from the left, and the chat
+plus turn clock open as a separate drawer from the right.
 
 Notably, `ClaimComposer` does not let the client invent its own claim model. It
 filters the shared generated claim list against the latest `lastClaim` and only

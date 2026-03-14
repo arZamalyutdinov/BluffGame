@@ -24,10 +24,27 @@ export function ClaimCardStack({
       {cards.map((card, index) => (
         <div
           key={`${card.rank}-${card.suit}-${index}`}
-          className={`claim-visual-card suit-${card.suit}`}
+          className="claim-visual-card-slot"
+          style={{ zIndex: index + 1 }}
         >
-          <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
-          <span className="claim-visual-suit">{SUIT_SYMBOLS[card.suit]}</span>
+          <div className={`claim-visual-card suit-${card.suit}`}>
+            <div className="claim-visual-corners">
+              <span className="claim-visual-rank">
+                {RANK_LABELS[card.rank]}
+              </span>
+              <span className="claim-visual-suit">
+                {SUIT_SYMBOLS[card.suit]}
+              </span>
+            </div>
+            <div className="claim-visual-corners claim-visual-corners-bottom">
+              <span className="claim-visual-rank">
+                {RANK_LABELS[card.rank]}
+              </span>
+              <span className="claim-visual-suit">
+                {SUIT_SYMBOLS[card.suit]}
+              </span>
+            </div>
+          </div>
         </div>
       ))}
     </div>
@@ -64,7 +81,9 @@ export function ClaimPreviewPanel({
 
       {claim ? (
         <>
-          <ClaimCardStack cards={claimToIllustrationCards(claim)} />
+          <div className="claim-panel-stack-area">
+            <ClaimCardStack cards={claimToIllustrationCards(claim)} />
+          </div>
           <strong className="claim-panel-title">
             {claimToCompactLabel(claim)}
           </strong>

@@ -8,6 +8,7 @@ interface RoomChatProps {
   disabled: boolean;
   isConnected: boolean;
   pendingCommand: string | null;
+  hideHeader?: boolean;
   onSendMessage: (text: string) => void;
 }
 
@@ -24,6 +25,7 @@ export function RoomChat({
   disabled,
   isConnected,
   pendingCommand,
+  hideHeader = false,
   onSendMessage,
 }: RoomChatProps) {
   const [draft, setDraft] = useState('');
@@ -58,13 +60,15 @@ export function RoomChat({
 
   return (
     <section className="side-panel-section room-chat">
-      <div className="side-panel-header">
-        <h2>Room chat</h2>
+      {!hideHeader ? (
+        <div className="side-panel-header">
+          <h2>Room chat</h2>
 
-        <span className={isConnected ? 'pill connected' : 'pill idle'}>
-          {isConnected ? 'connected' : 'offline'}
-        </span>
-      </div>
+          <span className={isConnected ? 'pill connected' : 'pill idle'}>
+            {isConnected ? 'connected' : 'offline'}
+          </span>
+        </div>
+      ) : null}
 
       <div ref={logRef} className="chat-log" aria-live="polite">
         {messages.length === 0 ? (
