@@ -182,6 +182,7 @@ function RoomPage() {
     pendingCommand: null,
     errorMessage: null,
   });
+  const [isTablePanelOpen, setIsTablePanelOpen] = useState(false);
 
   useEffect(() => {
     if (!session) {
@@ -249,6 +250,12 @@ function RoomPage() {
       socket.disconnect();
     };
   }, [session]);
+
+  useEffect(() => {
+    if (state.snapshot?.phase === 'lobby') {
+      setIsTablePanelOpen(false);
+    }
+  }, [state.snapshot?.phase]);
 
   if (!session) {
     return (
@@ -319,6 +326,7 @@ function RoomPage() {
           snapshot={state.snapshot}
           isConnected={state.isConnected}
           pendingCommand={state.pendingCommand}
+          isTablePanelOpen={isTablePanelOpen}
           onSubmitClaim={(claimKey) => sendCommand('submitClaim', { claimKey })}
           onChallengeClaim={() => sendCommand('challengeClaim')}
           onSetPauseState={(paused) =>
@@ -326,6 +334,7 @@ function RoomPage() {
           }
           onSendChatMessage={(text) => sendCommand('sendChatMessage', { text })}
           onRestartMatch={() => sendCommand('restartMatch')}
+          onSetTablePanelOpen={setIsTablePanelOpen}
         />
       )}
     </>

@@ -159,7 +159,7 @@ Each room should process one command at a time through a serialized queue. This 
 
 - Home: create or join a room.
 - Lobby: show seats, readiness, host controls, room settings, and match start conditions.
-- Match table: show the local hand, current claim to beat, claim history, countdown timer, host pause control, claim composer, check action, and a separate side rail for turn-ordered players plus room chat. On phones, that side rail should collapse into a stacked section below the main play area instead of staying narrow.
+- Match table: show `Your hand`, `Selected claim`, and `Claim to beat` in that order as a unified top play strip with exactly matched panel widths. Keep an always-visible `Check` action close to the claim-to-beat panel, but outside the panel itself, then place the claim composer underneath as the control surface for the selected-claim panel. Keep a persistent side rail that houses room chat plus the live turn clock. The player table should be opened from a `Show table` control in the match header, slide in from the left, keep a stable player order, and render per-player claim history as compact card previews instead of plain text. On smartphones, let the top play strip stack vertically instead of trying to preserve a cramped multi-column layout. The last showdown/timeout details can stay collapsed until opened.
 - Showdown summary: reveal cards, whether the spoken claim existed, loser, next-round starter, and remaining players.
 - Match result: winner banner and restart flow.
 

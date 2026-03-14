@@ -4,6 +4,7 @@ import {
   type Card,
   applyRoundLoss,
   claimExists,
+  claimToCompactLabel,
   compareClaims,
   parseClaimKey,
   resolveShowdown,
@@ -43,6 +44,23 @@ describe('compareClaims', () => {
     const spadesFlush = parseClaimKey('flush:spades');
 
     expect(compareClaims(spadesFlush, heartsFlush)).toBeGreaterThan(0);
+  });
+});
+
+describe('claimToCompactLabel', () => {
+  it('formats rank-based claims with short poker-style labels', () => {
+    expect(claimToCompactLabel(parseClaimKey('pair:9'))).toBe('pair of 9s');
+    expect(claimToCompactLabel(parseClaimKey('two-pair:9:2'))).toBe('9s & 2s');
+    expect(claimToCompactLabel(parseClaimKey('full-house:12:5'))).toBe(
+      'Qs full of 5s',
+    );
+  });
+
+  it('formats suit-based claims with compact suit symbols', () => {
+    expect(claimToCompactLabel(parseClaimKey('flush:hearts'))).toBe('♥ flush');
+    expect(claimToCompactLabel(parseClaimKey('straight-flush:10:spades'))).toBe(
+      '10-low ♠ straight flush',
+    );
   });
 });
 

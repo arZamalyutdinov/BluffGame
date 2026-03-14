@@ -388,16 +388,23 @@ state.
 Current components are intentionally thin:
 
 - `LobbyView`: readiness, host settings controls, start button, player list
-- `TableView`: local hand, separate claim-to-beat panel, claim history, turn
-  state, authoritative countdown, host pause control, showdown/timeout summary,
-  and a right-side rail with the turn-ordered table plus room chat
+- `TableView`: local hand, separate claim-to-beat panel, turn state,
+  authoritative countdown, host pause control, collapsed last-round result
+  panels, a unified top play strip for `Your hand`, `Selected claim`, and
+  `Claim to beat` with equal-width panels, a persistent room-chat rail with the
+  live turn clock above it, and a persistent `Check` action placed directly
+  near the claim-to-beat panel instead of inside it, plus a `Show table`
+  control in the match header that opens a left-side table drawer keeping
+  players in a stable order while rendering per-player claim history as compact
+  card previews
 - `RoomChat`: snapshot-backed chat log plus a single send-message form
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
   from the room's selected claim-order preset
 
-On narrow screens, the web app does not keep the table rail as a narrow
-sidebar. The layout collapses to one column so gameplay remains full width, and
-the table/chat rail stacks below the main match content.
+On narrow screens, the web app does not keep the chat rail or table drawer as
+narrow columns. The main gameplay stays full width, chat stacks below it, the
+table still opens as an overlay drawer from the left, and the unified top play
+strip stacks vertically.
 
 Notably, `ClaimComposer` does not let the client invent its own claim model. It
 filters the shared generated claim list against the latest `lastClaim` and only

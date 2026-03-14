@@ -1,9 +1,11 @@
+import type { ReactNode } from 'react';
+
 import {
   type Card,
   type Claim,
   RANK_LABELS,
   SUIT_SYMBOLS,
-  claimToLabel,
+  claimToCompactLabel,
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
@@ -39,6 +41,7 @@ interface ClaimPreviewPanelProps {
   emptyText: string;
   helperText?: string | undefined;
   className?: string | undefined;
+  headerAction?: ReactNode;
 }
 
 export function ClaimPreviewPanel({
@@ -48,15 +51,23 @@ export function ClaimPreviewPanel({
   emptyText,
   helperText,
   className,
+  headerAction,
 }: ClaimPreviewPanelProps) {
   return (
     <section className={`claim-visual-panel ${className ?? ''}`.trim()}>
-      <p className="claim-panel-label">{label}</p>
+      <div className="claim-panel-header">
+        <p className="claim-panel-label">{label}</p>
+        {headerAction ? (
+          <div className="claim-panel-header-action">{headerAction}</div>
+        ) : null}
+      </div>
 
       {claim ? (
         <>
           <ClaimCardStack cards={claimToIllustrationCards(claim)} />
-          <strong className="claim-panel-title">{claimToLabel(claim)}</strong>
+          <strong className="claim-panel-title">
+            {claimToCompactLabel(claim)}
+          </strong>
           {helperText ? (
             <p className="claim-helper-text">{helperText}</p>
           ) : null}

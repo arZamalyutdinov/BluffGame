@@ -1,4 +1,11 @@
-import { RANKS, type Rank, SUITS, type Suit } from '../cards/index.js';
+import {
+  RANKS,
+  RANK_LABELS,
+  type Rank,
+  SUITS,
+  SUIT_SYMBOLS,
+  type Suit,
+} from '../cards/index.js';
 import {
   type ClaimOrderPreset,
   DEFAULT_CLAIM_ORDER_PRESET,
@@ -175,6 +182,22 @@ const RANK_WORDS_PLURAL: Record<Rank, string> = {
   12: 'queens',
   13: 'kings',
   14: 'aces',
+};
+
+const RANK_SHORT_PLURAL_LABELS: Record<Rank, string> = {
+  2: '2s',
+  3: '3s',
+  4: '4s',
+  5: '5s',
+  6: '6s',
+  7: '7s',
+  8: '8s',
+  9: '9s',
+  10: '10s',
+  11: 'Js',
+  12: 'Qs',
+  13: 'Ks',
+  14: 'As',
 };
 
 function suitStrength(suit: Suit): number {
@@ -384,6 +407,29 @@ export function claimToLabel(claim: Claim): string {
       return `four ${RANK_WORDS_PLURAL[claim.quadRank]}`;
     case 'straight-flush':
       return `${STRAIGHT_LOW_RANK_WORDS[claim.lowRank]}-low ${claim.suit} straight flush`;
+  }
+}
+
+export function claimToCompactLabel(claim: Claim): string {
+  switch (claim.category) {
+    case 'high-card':
+      return `${RANK_LABELS[claim.rank]}-high`;
+    case 'pair':
+      return `pair of ${RANK_SHORT_PLURAL_LABELS[claim.pairRank]}`;
+    case 'two-pair':
+      return `${RANK_SHORT_PLURAL_LABELS[claim.highPairRank]} & ${RANK_SHORT_PLURAL_LABELS[claim.lowPairRank]}`;
+    case 'three-of-a-kind':
+      return `trips ${RANK_SHORT_PLURAL_LABELS[claim.tripRank]}`;
+    case 'straight':
+      return `${STRAIGHT_LOW_RANK_LABELS[claim.lowRank]}-low straight`;
+    case 'flush':
+      return `${SUIT_SYMBOLS[claim.suit]} flush`;
+    case 'full-house':
+      return `${RANK_SHORT_PLURAL_LABELS[claim.tripRank]} full of ${RANK_SHORT_PLURAL_LABELS[claim.pairRank]}`;
+    case 'four-of-a-kind':
+      return `quads ${RANK_SHORT_PLURAL_LABELS[claim.quadRank]}`;
+    case 'straight-flush':
+      return `${STRAIGHT_LOW_RANK_LABELS[claim.lowRank]}-low ${SUIT_SYMBOLS[claim.suit]} straight flush`;
   }
 }
 
