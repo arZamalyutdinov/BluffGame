@@ -85,6 +85,56 @@ pnpm lint
 pnpm --filter @bluff-game/web run build
 ```
 
+## Production Build
+
+Build the browser client:
+
+```bash
+pnpm build
+```
+
+Start the Fastify server in production mode:
+
+```bash
+pnpm start
+```
+
+If `apps/web/dist` exists, the server also serves the built React app from the
+same origin. That means `/`, `/rooms/:roomCode`, `/api/*`, and `/socket.io`
+can all run from one Render web service.
+
+## Deploy To Render
+
+Render is a reasonable hobby host for this project because it supports
+long-running Node services and WebSockets. The biggest caveat on the Free tier
+is that service restarts and spin-downs still wipe in-memory room state.
+
+Recommended Render settings:
+
+- Service type: `Web Service`
+- Runtime: `Node`
+- Root directory: leave empty
+- Build command: `pnpm install --frozen-lockfile && pnpm build`
+- Start command: `pnpm start`
+- Health check path: `/health`
+- Auto-Deploy: `Off` if you want GitHub Actions to be the only deploy trigger
+
+### Manual GitHub deploy workflow
+
+This repo also includes a manual GitHub Actions workflow at
+`.github/workflows/render-deploy.yml`.
+
+Before using it, add this repository secret in GitHub:
+
+- `RENDER_DEPLOY_HOOK_URL`: the deploy hook URL from your Render service
+
+Run the workflow from the Actions tab, enter the branch you want to deploy, and
+the workflow will trigger Render for that branch's current commit.
+
+Because this uses Render's "deploy a specific commit" flow, Render disables
+automatic deploys for the service after that kind of deploy. That matches the
+manual-only setup above.
+
 ## Current Scope
 
 - No database

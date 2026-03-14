@@ -1,0 +1,42 @@
+name: Render Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch to deploy to Render
+        required: true
+        default: main
+        type: string
+
+concurrency:
+  group: render-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to Render
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+
+      - name: Resolve commit SHA
+        id: resolve-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Trigger Render deploy
+        env:
+          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+          RENDER_COMMIT_SHA: ${{ steps.resolve-sha.outputs.sha }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            "${RENDER_DEPLOY_HOOK_URL}?ref=${RENDER_COMMIT_SHA}"
