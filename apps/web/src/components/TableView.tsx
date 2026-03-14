@@ -116,6 +116,7 @@ export function TableView({
 }: TableViewProps) {
   const match = snapshot.match;
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
   const [selectedComposerClaim, setSelectedComposerClaim] = useState<
     Claim | undefined
   >(undefined);
@@ -142,13 +143,14 @@ export function TableView({
   }, [turnTimer]);
 
   useEffect(() => {
-    if (!isTablePanelOpen) {
+    if (!isTablePanelOpen && !isChatPanelOpen) {
       return;
     }
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         onSetTablePanelOpen(false);
+        setIsChatPanelOpen(false);
       }
     }
 
@@ -157,7 +159,7 @@ export function TableView({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isTablePanelOpen, onSetTablePanelOpen]);
+  }, [isChatPanelOpen, isTablePanelOpen, onSetTablePanelOpen]);
 
   useEffect(() => {
     if (
@@ -234,6 +236,47 @@ export function TableView({
             text: 'Your next move will appear here once the turn comes around.',
           };
 
+  function renderChatRailContent(hideChatHeader = false) {
+    return (
+      <>
+        {turnTimer && remainingMs !== null && !winner ? (
+          <section className="side-panel-section side-panel-card turn-timer-panel turn-timer-side-panel">
+            <div className="turn-timer-header">
+              <h2>Turn clock</h2>
+            </div>
+
+            <div className={`turn-timer-value ${isPaused ? 'is-paused' : ''}`}>
+              {formatRemainingMs(remainingMs)}
+            </div>
+
+            {isHost ? (
+              <div className="turn-timer-actions">
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => onSetPauseState(!isPaused)}
+                  disabled={!isConnected || pendingCommand !== null}
+                >
+                  {isPaused ? 'Resume' : 'Pause'}
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        <RoomChat
+          messages={snapshot.chatMessages}
+          selfPlayerId={snapshot.selfPlayerId}
+          disabled={!isConnected || pendingCommand !== null}
+          isConnected={isConnected}
+          pendingCommand={pendingCommand}
+          hideHeader={hideChatHeader}
+          onSendMessage={onSendChatMessage}
+        />
+      </>
+    );
+  }
+
   return (
     <section className="surface-grid match-layout">
       <article className="hero-panel match-main-panel">
@@ -258,9 +301,24 @@ export function TableView({
               className="ghost-button table-launcher-button"
               aria-expanded={isTablePanelOpen}
               aria-controls="table-drawer"
-              onClick={() => onSetTablePanelOpen(!isTablePanelOpen)}
+              onClick={() => {
+                setIsChatPanelOpen(false);
+                onSetTablePanelOpen(!isTablePanelOpen);
+              }}
             >
               {isTablePanelOpen ? 'Hide table' : 'Show table'}
+            </button>
+            <button
+              type="button"
+              className="ghost-button chat-toggle-button"
+              aria-expanded={isChatPanelOpen}
+              aria-controls="chat-drawer"
+              onClick={() => {
+                onSetTablePanelOpen(false);
+                setIsChatPanelOpen((current) => !current);
+              }}
+            >
+              {isChatPanelOpen ? 'Hide chat' : 'Show chat'}
             </button>
             <span className="pill ready">Room {snapshot.roomCode}</span>
             {turnTimer && remainingMs !== null ? (
@@ -279,15 +337,8 @@ export function TableView({
             <div className="claim-panel-header">
               <p className="claim-panel-label">Your hand</p>
             </div>
-            <div className="card-row">
-              {match.yourHand.map((card) => (
-                <div
-                  key={`${card.rank}-${card.suit}`}
-                  className={`playing-card suit-${card.suit}`}
-                >
-                  {cardToShortLabel(card)}
-                </div>
-              ))}
+            <div className="claim-panel-stack-area">
+              <ClaimCardStack cards={match.yourHand} />
             </div>
           </section>
 
@@ -456,47 +507,18 @@ export function TableView({
       </article>
 
       <aside className="panel table-side-panel chat-side-panel">
-        {turnTimer && remainingMs !== null && !winner ? (
-          <section className="side-panel-section side-panel-card turn-timer-panel turn-timer-side-panel">
-            <div className="turn-timer-header">
-              <h2>Turn clock</h2>
-            </div>
-
-            <div className={`turn-timer-value ${isPaused ? 'is-paused' : ''}`}>
-              {formatRemainingMs(remainingMs)}
-            </div>
-
-            {isHost ? (
-              <div className="turn-timer-actions">
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => onSetPauseState(!isPaused)}
-                  disabled={!isConnected || pendingCommand !== null}
-                >
-                  {isPaused ? 'Resume' : 'Pause'}
-                </button>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        <RoomChat
-          messages={snapshot.chatMessages}
-          selfPlayerId={snapshot.selfPlayerId}
-          disabled={!isConnected || pendingCommand !== null}
-          isConnected={isConnected}
-          pendingCommand={pendingCommand}
-          onSendMessage={onSendChatMessage}
-        />
+        {renderChatRailContent()}
       </aside>
 
       <button
         type="button"
-        className={`table-drawer-backdrop ${isTablePanelOpen ? 'is-open' : ''}`}
-        onClick={() => onSetTablePanelOpen(false)}
-        aria-label="Close table panel"
-        tabIndex={isTablePanelOpen ? 0 : -1}
+        className={`table-drawer-backdrop ${isTablePanelOpen || isChatPanelOpen ? 'is-open' : ''}`}
+        onClick={() => {
+          onSetTablePanelOpen(false);
+          setIsChatPanelOpen(false);
+        }}
+        aria-label="Close side panels"
+        tabIndex={isTablePanelOpen || isChatPanelOpen ? 0 : -1}
       />
 
       <aside
@@ -599,6 +621,29 @@ export function TableView({
             })}
           </ul>
         </section>
+      </aside>
+
+      <aside
+        id="chat-drawer"
+        className={`panel chat-drawer ${isChatPanelOpen ? 'is-open' : ''}`}
+        aria-hidden={!isChatPanelOpen}
+      >
+        <div className="table-drawer-header">
+          <div>
+            <p className="eyebrow">Chat</p>
+            <h2>Room chat</h2>
+          </div>
+
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setIsChatPanelOpen(false)}
+          >
+            Close
+          </button>
+        </div>
+
+        <div className="chat-drawer-content">{renderChatRailContent(true)}</div>
       </aside>
     </section>
   );

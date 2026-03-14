@@ -305,6 +305,11 @@ h2 {
   min-width: 9.75rem;
 }
 
+.chat-toggle-button,
+.chat-drawer {
+  display: none;
+}
+
 .pill {
   display: inline-flex;
   align-items: center;
@@ -441,11 +446,34 @@ h2 {
   transform: translateX(0);
 }
 
+.chat-drawer {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  bottom: 1rem;
+  width: min(34rem, calc(100vw - 2rem));
+  gap: 1rem;
+  align-content: start;
+  overflow-y: auto;
+  transform: translateX(calc(100% + 1rem));
+  transition: transform 220ms ease;
+  z-index: 40;
+}
+
+.chat-drawer.is-open {
+  transform: translateX(0);
+}
+
 .table-drawer-header {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
   align-items: start;
+}
+
+.chat-drawer-content {
+  display: grid;
+  gap: 1rem;
 }
 
 .table-grid {
@@ -465,11 +493,6 @@ h2 {
   display: grid;
   gap: 0.75rem;
   align-content: start;
-}
-
-.hand-preview-panel .card-row {
-  min-height: 5rem;
-  align-items: center;
 }
 
 .claim-side-action {
@@ -538,7 +561,7 @@ h2 {
   min-height: 78px;
   border-radius: 18px;
   border: 1px solid rgba(23, 49, 62, 0.16);
-  background: rgba(255, 255, 255, 0.88);
+  background: #fff;
   font-family: "IBM Plex Mono", monospace;
   font-size: 1rem;
   font-weight: 500;
@@ -683,12 +706,22 @@ h2 {
   min-height: 2.7rem;
 }
 
-.claim-card-stack .claim-visual-card + .claim-visual-card {
-  margin-left: -0.95rem;
+.claim-visual-card-slot {
+  flex: 0 0 auto;
+  width: 2.4rem;
+  overflow: hidden;
 }
 
-.claim-card-stack.is-compact .claim-visual-card + .claim-visual-card {
-  margin-left: -0.6rem;
+.claim-card-stack .claim-visual-card-slot:last-child {
+  width: 3.4rem;
+}
+
+.claim-card-stack.is-compact .claim-visual-card-slot {
+  width: 1.5rem;
+}
+
+.claim-card-stack.is-compact .claim-visual-card-slot:last-child {
+  width: 2.1rem;
 }
 
 .claim-visual-card {
@@ -700,7 +733,7 @@ h2 {
   padding: 0.38rem;
   border: 1px solid rgba(23, 49, 62, 0.12);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
+  background: #fff;
   box-shadow: 0 10px 24px rgba(65, 39, 0, 0.08);
   font-family: "IBM Plex Mono", monospace;
   line-height: 1;
@@ -713,13 +746,23 @@ h2 {
   border-radius: 10px;
 }
 
+.claim-visual-corners {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.claim-visual-corners-bottom {
+  transform: rotate(180deg);
+}
+
 .claim-visual-rank {
   font-size: 1rem;
   font-weight: 700;
 }
 
 .claim-visual-suit {
-  align-self: flex-end;
   font-size: 1rem;
 }
 
@@ -909,6 +952,11 @@ h2 {
   border-top: 0;
 }
 
+.chat-drawer .room-chat {
+  padding-top: 0;
+  border-top: 0;
+}
+
 .chat-log {
   display: grid;
   gap: 0.75rem;
@@ -978,12 +1026,13 @@ h2 {
 
 @media (max-width: 900px) {
   .home-grid,
-  .table-grid,
+  .table-grid {
+    grid-template-columns: 1fr;
+  }
+
   .match-layout {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "main"
-      "chat";
+    grid-template-areas: "main";
   }
 
   .claim-visual-row {
@@ -1022,16 +1071,30 @@ h2 {
     padding-inline: 1rem;
   }
 
-  .table-side-panel {
-    position: static;
-    top: auto;
+  .chat-toggle-button {
+    display: inline-flex;
+    min-height: 44px;
+    padding-inline: 1rem;
+  }
+
+  .chat-side-panel {
+    display: none;
+  }
+
+  .table-drawer,
+  .chat-drawer {
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: calc(100vw - 1rem);
   }
 
   .table-drawer {
-    top: 0.5rem;
     left: 0.5rem;
-    bottom: 0.5rem;
-    width: calc(100vw - 1rem);
+  }
+
+  .chat-drawer {
+    display: grid;
+    right: 0.5rem;
   }
 
   .player-row {
