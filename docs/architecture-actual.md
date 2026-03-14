@@ -29,6 +29,7 @@ higher-level planning document.
             ├── claims/
             ├── protocol/
             ├── rules/
+            ├── settings/
             └── state/
 ```
 
@@ -59,13 +60,14 @@ It currently contains:
 
 - `cards`: card types, deck creation, shuffling, dealing, card labels
 - `claims`: normalized claim types, comparison ordering, serialization to keys,
-  display labels, and the precomputed `ALL_CLAIMS` list
+  display labels, and generated claim lists per preset
 - `rules`: exact-claim existence checks, showdown resolution, and starter
   rotation helpers
 - `protocol`: Zod schemas for HTTP payloads, socket auth, commands, and room
   snapshots
-- `state`: room snapshot, match snapshot, showdown snapshot, and room session
-  types
+- `settings`: room-setting defaults, preset labels, and numeric limits
+- `state`: room snapshot, match snapshot, chat snapshot, showdown snapshot,
+  and room session types
 
 Important consequence: the frontend does not implement its own game rules. It
 only renders shared types and sends commands.
@@ -94,9 +96,12 @@ state changes to `RoomRegistry`.
 It owns:
 
 - the in-memory `Map<string, RoomState>` of all active rooms
+- per-room turn timer handles
 - room/player/match/round internal state
+- bounded per-room chat history
 - host assignment
 - session token validation
+- duplicate-name enforcement for joins
 - serialized per-room command execution
 - round creation and dealing
 - claim submission
@@ -111,8 +116,11 @@ The server keeps more data than the client sees:
 - player session token
 - player socket id
 - raw `handsByPlayerId` for the active round
+- bounded room chat history
 - seat-based turn tracking
+- running or paused turn-clock state
 - previous showdown details carried into the next snapshot
+- previous timeout details carried into the next snapshot
 
 The client never receives other players' hidden cards during normal play.
 
@@ -132,9 +140,13 @@ viewer-specific `RoomSnapshot`.
 Important details:
 
 - each connected player gets a separate snapshot
+- `settings` are included on every room snapshot
+- `chatMessages` are included on every room snapshot
+- `turnTimer` is included while a match is active
 - `yourHand` only contains the viewer's own cards
 - public player rows include `cardCount`, not private card identities
 - `showdown` is carried on the snapshot after a challenge resolves
+- `timeout` is carried on the snapshot after a turn expires
 - when the match ends, the snapshot includes `winnerPlayerId`
 
 The backend always treats snapshots as authoritative render state.
@@ -157,6 +169,9 @@ Current flow:
 - `playerId`
 - `sessionToken`
 - `displayName`
+
+Join requests are rejected if the room already contains the same display name
+after the server's normal trimming and case-folding.
 
 ## Socket Connection Flow
 
@@ -183,9 +198,12 @@ If invalid:
 Implemented inbound commands:
 
 - `setReady`
+- `updateRoomSettings`
 - `startMatch`
+- `sendChatMessage`
 - `submitClaim`
 - `challengeClaim`
+- `setMatchPaused`
 - `restartMatch`
 - `leaveRoom`
 
@@ -206,8 +224,19 @@ While `room.phase === 'lobby'`:
 
 - players can join
 - players can toggle ready state
+- the host can change room settings
+- duplicate display names are rejected per room
 - the host can start the match
 - players can leave
+
+Room settings currently include:
+
+- `eliminationHandSize` in the range `2` to `6`
+- `claimOrderPreset` with three supported presets
+- `turnTimeLimitSeconds` in the range `15` to `120`
+
+If the host changes any setting, the server resets all player ready states to
+`false`.
 
 The match only starts when:
 
@@ -222,6 +251,7 @@ The match only starts when:
 - resets all players to `handSize = 1` and `isEliminated = false`
 - chooses a random starter seat
 - creates a new round with shuffled/dealt hands
+- starts the first authoritative turn timer
 - moves the room to `in-match`
 
 ### During A Round
@@ -231,13 +261,19 @@ The round keeps:
 - `roundNumber`
 - `starterSeatIndex`
 - `currentTurnSeatIndex`
+- `turnTimer`
 - `lastClaim`
 - `lastClaimantPlayerId`
 - `claimHistory`
 - `handsByPlayerId`
 
 The opening player can make any legal claim. Every later claim must be strictly
-higher according to `compareClaims`.
+higher according to `compareClaims` using the room's selected
+`claimOrderPreset`.
+
+The server also owns the active turn timer. When a player acts successfully,
+the next turn receives a fresh full timer. The host can pause and resume that
+timer without changing the current turn owner.
 
 ### Challenging
 
@@ -246,7 +282,7 @@ higher according to `compareClaims`.
 1. collects every active player's cards
 2. asks shared rules whether the exact spoken claim exists
 3. decides the loser
-4. updates `handSize` or elimination
+4. updates `handSize` or elimination using the room's `eliminationHandSize`
 5. records a showdown snapshot
 6. either:
    - finishes the match if one active player remains, or
@@ -254,6 +290,20 @@ higher according to `compareClaims`.
 
 There is no separate paused showdown phase on the server. Instead, the showdown
 summary is attached to the next snapshot so the UI can still render it.
+
+### Timing Out
+
+If the active player's timer reaches zero, `RoomRegistry` resolves the round
+without waiting for another socket command:
+
+1. the active player is marked as the round loser
+2. the shared penalty progression is applied
+3. active hands are revealed into a timeout summary snapshot
+4. the match either ends or the next round starts immediately
+
+Late commands are not accepted. Before a claim, check, or pause command is
+processed, the registry first checks whether the turn clock has already expired
+and resolves the timeout if needed.
 
 ### Restarting
 
@@ -276,9 +326,10 @@ the revealed shared pool.
 Examples of what the shared rules package currently does:
 
 - `pair of queens` is valid if there are at least two queens
-- `straight:7` requires exactly the ranks for a 7-high straight to exist
-- `flush:13` requires a 5-card flush whose highest card can be king
-- `royal-flush` requires one suit to contain `10 J Q K A`
+- `straight:3` requires exactly the ranks `3 4 5 6 7` to exist
+- `flush:hearts` requires at least five hearts anywhere in the shared pool
+- `straight-flush:9:clubs` requires a club 9-to-king straight flush
+- `straight-flush:10:spades` covers what used to be a royal flush
 
 `resolveShowdown` only decides:
 
@@ -286,6 +337,8 @@ Examples of what the shared rules package currently does:
 - who loses
 - the loser's next `handSize`
 - whether the loser is eliminated
+
+`applyRoundLoss` is the shared helper the server reuses for timeout losses.
 
 The backend is still responsible for:
 
@@ -334,14 +387,21 @@ state.
 
 Current components are intentionally thin:
 
-- `LobbyView`: readiness, start button, player list
-- `TableView`: local hand, claim history, turn state, showdown summary
-- `ClaimComposer`: compact category pills plus card-style previews and filtered
-  rank controls built from `ALL_CLAIMS`
+- `LobbyView`: readiness, host settings controls, start button, player list
+- `TableView`: local hand, separate claim-to-beat panel, claim history, turn
+  state, authoritative countdown, host pause control, showdown/timeout summary,
+  and a right-side rail with the turn-ordered table plus room chat
+- `RoomChat`: snapshot-backed chat log plus a single send-message form
+- `ClaimComposer`: compact category pills plus filtered rank/suit controls built
+  from the room's selected claim-order preset
+
+On narrow screens, the web app does not keep the table rail as a narrow
+sidebar. The layout collapses to one column so gameplay remains full width, and
+the table/chat rail stacks below the main match content.
 
 Notably, `ClaimComposer` does not let the client invent its own claim model. It
-filters the shared precomputed claim list against the latest `lastClaim` and
-only submits the resulting shared `claimKey`.
+filters the shared generated claim list against the latest `lastClaim` and only
+submits the resulting shared `claimKey`.
 
 ## Privacy Model
 
@@ -350,7 +410,8 @@ The current privacy boundary is simple:
 - server knows every active player's hand
 - each client only receives its own hand
 - other players are represented by public rows and `cardCount`
-- all active hands are only revealed through `showdown.revealedHands`
+- all active hands are only revealed through `showdown.revealedHands` or
+  `timeout.revealedHands`
 
 This is enforced by snapshot projection, not by trusting the client.
 
@@ -366,7 +427,7 @@ Current implemented behavior:
   next available player
 
 This is deliberately simple and still leaves room for future policies like host
-kicks or turn timers.
+kicks or disconnect-time pause rules.
 
 ## Differences From The Planning Architecture
 

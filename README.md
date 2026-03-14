@@ -43,7 +43,8 @@ This starts:
 - frontend: `http://localhost:5173`
 
 Open `http://localhost:5173` in a browser, enter a display name, then create a
-room or join one with a 4-letter room code.
+room or join one with a 4-letter room code. The host can edit room settings in
+the lobby before starting, including the turn timer.
 
 ## Run The Parts Separately
 
@@ -143,6 +144,8 @@ already belong to the service's linked branch history.
 - No authentication system
 - No persistence across restarts
 - Room and match state stored in memory only
+- Room settings are host-controlled and lobby-only
+- The host can pause and resume the live turn clock during a match
 
 ## Docs
 

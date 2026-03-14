@@ -1,19 +1,31 @@
-import type { RoomSnapshot } from '@bluff-game/shared';
+import {
+  CLAIM_ORDER_PRESETS,
+  CLAIM_ORDER_PRESET_DESCRIPTIONS,
+  CLAIM_ORDER_PRESET_LABELS,
+  type ClaimOrderPreset,
+  ELIMINATION_HAND_SIZE_OPTIONS,
+  type RoomSnapshot,
+  TURN_TIME_LIMIT_SECONDS_OPTIONS,
+} from '@bluff-game/shared';
 
 interface LobbyViewProps {
   snapshot: RoomSnapshot;
   isConnected: boolean;
+  pendingCommand: string | null;
   onSetReady: (ready: boolean) => void;
   onStartMatch: () => void;
   onLeaveRoom: () => void;
+  onUpdateSettings: (settings: RoomSnapshot['settings']) => void;
 }
 
 export function LobbyView({
   snapshot,
   isConnected,
+  pendingCommand,
   onSetReady,
   onStartMatch,
   onLeaveRoom,
+  onUpdateSettings,
 }: LobbyViewProps) {
   const self = snapshot.players.find(
     (player) => player.playerId === snapshot.selfPlayerId,
@@ -21,6 +33,8 @@ export function LobbyView({
   const everyoneReady =
     snapshot.players.length >= 2 &&
     snapshot.players.every((player) => player.isReady);
+  const isHost = snapshot.hostPlayerId === snapshot.selfPlayerId;
+  const controlsDisabled = !isConnected || pendingCommand !== null;
 
   if (!self) {
     return null;
@@ -43,25 +57,136 @@ export function LobbyView({
             type="button"
             className={self.isReady ? 'secondary-button' : 'primary-button'}
             onClick={() => onSetReady(!self.isReady)}
-            disabled={!isConnected}
+            disabled={controlsDisabled}
           >
             {self.isReady ? 'Mark not ready' : 'Mark ready'}
           </button>
 
-          {snapshot.hostPlayerId === snapshot.selfPlayerId ? (
+          {isHost ? (
             <button
               type="button"
               className="primary-button"
               onClick={onStartMatch}
-              disabled={!everyoneReady || !isConnected}
+              disabled={!everyoneReady || controlsDisabled}
             >
               Start match
             </button>
           ) : null}
 
-          <button type="button" className="ghost-button" onClick={onLeaveRoom}>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={onLeaveRoom}
+            disabled={controlsDisabled}
+          >
             Leave room
           </button>
+        </div>
+      </article>
+
+      <article className="panel">
+        <h2>Room settings</h2>
+        <div className="settings-grid">
+          <div className="field-label">
+            Combination order
+            {isHost ? (
+              <select
+                className="text-input"
+                value={snapshot.settings.claimOrderPreset}
+                disabled={controlsDisabled}
+                onChange={(event) =>
+                  onUpdateSettings({
+                    ...snapshot.settings,
+                    claimOrderPreset: event.target.value as ClaimOrderPreset,
+                  })
+                }
+              >
+                {CLAIM_ORDER_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {CLAIM_ORDER_PRESET_LABELS[preset]}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="settings-value">
+                {CLAIM_ORDER_PRESET_LABELS[snapshot.settings.claimOrderPreset]}
+              </div>
+            )}
+          </div>
+
+          <p className="claim-helper-text">
+            {
+              CLAIM_ORDER_PRESET_DESCRIPTIONS[
+                snapshot.settings.claimOrderPreset
+              ]
+            }
+          </p>
+
+          <div className="field-label">
+            Eliminate at hand size
+            {isHost ? (
+              <select
+                className="text-input"
+                value={snapshot.settings.eliminationHandSize}
+                disabled={controlsDisabled}
+                onChange={(event) =>
+                  onUpdateSettings({
+                    ...snapshot.settings,
+                    eliminationHandSize: Number(event.target.value),
+                  })
+                }
+              >
+                {ELIMINATION_HAND_SIZE_OPTIONS.map((size) => (
+                  <option key={size} value={size}>
+                    {size} cards
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="settings-value">
+                {snapshot.settings.eliminationHandSize} cards
+              </div>
+            )}
+          </div>
+
+          <p className="claim-helper-text">
+            A player who loses while already holding this many cards is
+            eliminated instead of drawing more. Changing settings resets ready
+            states.
+          </p>
+
+          <div className="field-label">
+            Turn timer
+            {isHost ? (
+              <select
+                className="text-input"
+                value={snapshot.settings.turnTimeLimitSeconds}
+                disabled={controlsDisabled}
+                onChange={(event) =>
+                  onUpdateSettings({
+                    ...snapshot.settings,
+                    turnTimeLimitSeconds: Number(event.target.value),
+                  })
+                }
+              >
+                {TURN_TIME_LIMIT_SECONDS_OPTIONS.map((seconds) => (
+                  <option key={seconds} value={seconds}>
+                    {seconds} seconds
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <div className="settings-value">
+                {snapshot.settings.turnTimeLimitSeconds} seconds
+              </div>
+            )}
+          </div>
+
+          <p className="claim-helper-text">
+            If the active player runs out of time, they automatically lose the
+            round. The host can pause and resume the live turn clock during a
+            match.
+          </p>
         </div>
       </article>
 

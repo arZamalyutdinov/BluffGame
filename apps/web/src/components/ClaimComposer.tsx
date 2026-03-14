@@ -1,21 +1,24 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import {
-  ALL_CLAIMS,
-  CLAIM_CATEGORIES,
-  type Card,
   type Claim,
   type ClaimCategory,
+  type ClaimOrderPreset,
   RANK_LABELS,
+  STRAIGHT_LOW_RANK_LABELS,
   SUIT_SYMBOLS,
   claimToKey,
   claimToLabel,
   compareClaims,
+  getAllClaims,
+  getClaimCategoryOrder,
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+import { ClaimCardStack, ClaimPreviewPanel } from './ClaimPreview.js';
 
 interface ClaimComposerProps {
+  claimOrderPreset: ClaimOrderPreset;
   lastClaim?: Claim;
   disabled?: boolean;
   onSubmit: (claimKey: string) => void;
@@ -33,7 +36,6 @@ const CATEGORY_LABELS: Record<ClaimCategory, string> = {
   'full-house': 'Full house',
   'four-of-a-kind': 'Quads',
   'straight-flush': 'Straight flush',
-  'royal-flush': 'Royal flush',
 };
 
 function categoryClaimsFor<C extends ClaimCategory>(
@@ -53,6 +55,10 @@ function uniqueNumbers(values: number[]): number[] {
   return [...new Set(values)];
 }
 
+function suitLabel(suit: string): string {
+  return `${suit[0]?.toUpperCase() ?? ''}${suit.slice(1)}`;
+}
+
 interface OptionGridProps {
   label: string;
   children: ReactNode;
@@ -69,6 +75,7 @@ function OptionGrid({ label, children }: OptionGridProps) {
 
 interface RankOptionButtonProps {
   rank: number;
+  label?: string;
   active: boolean;
   disabled: boolean;
   onClick: () => void;
@@ -76,6 +83,7 @@ interface RankOptionButtonProps {
 
 function RankOptionButton({
   rank,
+  label,
   active,
   disabled,
   onClick,
@@ -88,61 +96,35 @@ function RankOptionButton({
       disabled={disabled}
       aria-pressed={active}
     >
-      {rankToken(rank)}
+      {label ?? rankToken(rank)}
     </button>
   );
 }
 
-interface ClaimCardStackProps {
-  cards: Card[];
-  compact?: boolean;
+interface SuitOptionButtonProps {
+  suit: 'diamonds' | 'clubs' | 'hearts' | 'spades';
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
 }
 
-function ClaimCardStack({ cards, compact = false }: ClaimCardStackProps) {
+function SuitOptionButton({
+  suit,
+  active,
+  disabled,
+  onClick,
+}: SuitOptionButtonProps) {
   return (
-    <div className={`claim-card-stack ${compact ? 'is-compact' : ''}`}>
-      {cards.map((card) => (
-        <div
-          key={`${card.rank}-${card.suit}`}
-          className={`claim-visual-card suit-${card.suit}`}
-        >
-          <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
-          <span className="claim-visual-suit">{SUIT_SYMBOLS[card.suit]}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-interface ClaimVisualPanelProps {
-  label: string;
-  claim?: Claim | undefined;
-  emptyTitle: string;
-  emptyText: string;
-}
-
-function ClaimVisualPanel({
-  label,
-  claim,
-  emptyTitle,
-  emptyText,
-}: ClaimVisualPanelProps) {
-  return (
-    <section className="claim-visual-panel">
-      <p className="claim-panel-label">{label}</p>
-
-      {claim ? (
-        <>
-          <ClaimCardStack cards={claimToIllustrationCards(claim)} />
-          <strong className="claim-panel-title">{claimToLabel(claim)}</strong>
-        </>
-      ) : (
-        <div className="claim-panel-empty">
-          <strong className="claim-panel-title">{emptyTitle}</strong>
-          <p className="claim-helper-text">{emptyText}</p>
-        </div>
-      )}
-    </section>
+    <button
+      type="button"
+      className={`claim-suit-button suit-${suit} ${active ? 'is-active' : ''}`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+    >
+      <span className="claim-suit-symbol">{SUIT_SYMBOLS[suit]}</span>
+      <span className="claim-suit-label">{suitLabel(suit)}</span>
+    </button>
   );
 }
 
@@ -183,21 +165,27 @@ function CategoryButton({
 }
 
 export function ClaimComposer({
+  claimOrderPreset,
   lastClaim,
   disabled = false,
   onSubmit,
 }: ClaimComposerProps) {
+  const categoryOrder = useMemo(
+    () => getClaimCategoryOrder(claimOrderPreset),
+    [claimOrderPreset],
+  );
   const availableClaims = useMemo(
     () =>
-      ALL_CLAIMS.filter(
-        (claim) => !lastClaim || compareClaims(claim, lastClaim) > 0,
+      getAllClaims(claimOrderPreset).filter(
+        (claim) =>
+          !lastClaim || compareClaims(claim, lastClaim, claimOrderPreset) > 0,
       ),
-    [lastClaim],
+    [claimOrderPreset, lastClaim],
   );
   const availableClaimsByCategory = useMemo(() => {
     const groups = new Map<ClaimCategory, Claim[]>();
 
-    for (const category of CLAIM_CATEGORIES) {
+    for (const category of categoryOrder) {
       groups.set(category, []);
     }
 
@@ -206,13 +194,14 @@ export function ClaimComposer({
     }
 
     return groups;
-  }, [availableClaims]);
-  const [selectedCategory, setSelectedCategory] =
-    useState<ClaimCategory>('high-card');
+  }, [availableClaims, categoryOrder]);
+  const [selectedCategory, setSelectedCategory] = useState<ClaimCategory>(
+    categoryOrder[0] ?? 'high-card',
+  );
   const [selectedClaimKey, setSelectedClaimKey] = useState('');
 
   useEffect(() => {
-    const firstAvailableCategory = CLAIM_CATEGORIES.find(
+    const firstAvailableCategory = categoryOrder.find(
       (category) => (availableClaimsByCategory.get(category)?.length ?? 0) > 0,
     );
 
@@ -238,7 +227,12 @@ export function ClaimComposer({
       const defaultClaim = categoryClaims[0];
       setSelectedClaimKey(defaultClaim ? claimToKey(defaultClaim) : '');
     }
-  }, [availableClaimsByCategory, selectedCategory, selectedClaimKey]);
+  }, [
+    availableClaimsByCategory,
+    categoryOrder,
+    selectedCategory,
+    selectedClaimKey,
+  ]);
 
   const selectedCategoryClaims =
     availableClaimsByCategory.get(selectedCategory) ?? [];
@@ -267,33 +261,28 @@ export function ClaimComposer({
         }
       }}
     >
-      <div className="claim-visual-row">
-        <ClaimVisualPanel
-          label="Claim to beat"
-          claim={lastClaim}
-          emptyTitle="Opening move"
-          emptyText="No claim is on the table yet. You can open with any legal claim."
-        />
+      <div className="claim-builder-header">
+        <div>
+          <p className="eyebrow composer-eyebrow">Your claim</p>
+          <p className="claim-helper-text">
+            Choose the hand category first, then set the exact rank or suit.
+          </p>
+        </div>
 
-        <ClaimVisualPanel
-          label="Your claim"
+        <ClaimPreviewPanel
+          label="Selected claim"
           claim={selectedClaim}
           emptyTitle="Pick a claim"
           emptyText="Choose a category and shape the exact claim before submitting."
+          helperText={
+            lastClaim ? `Must beat ${claimToLabel(lastClaim)}.` : undefined
+          }
+          className="claim-selection-panel"
         />
       </div>
 
-      <div className="claim-builder-header">
-        <div>
-          <p className="eyebrow composer-eyebrow">Category</p>
-          <p className="claim-helper-text">
-            Start with the hand type, then fine-tune the exact rank details.
-          </p>
-        </div>
-      </div>
-
       <div className="claim-category-toolbar">
-        {CLAIM_CATEGORIES.map((category) => {
+        {categoryOrder.map((category) => {
           const categoryClaims = availableClaimsByCategory.get(category) ?? [];
           const previewClaim = categoryClaims[0];
           const isAvailable = categoryClaims.length > 0;
@@ -429,9 +418,13 @@ function renderClaimControls({
                 active={rank === selectedHighPair}
                 disabled={disabled}
                 onClick={() => {
-                  const nextClaim = twoPairClaims.find(
-                    (claim) => claim.highPairRank === rank,
-                  );
+                  const nextClaim =
+                    twoPairClaims.find(
+                      (claim) =>
+                        claim.highPairRank === rank &&
+                        claim.lowPairRank === selectedLowPair,
+                    ) ??
+                    twoPairClaims.find((claim) => claim.highPairRank === rank);
 
                   if (nextClaim) {
                     onChange(nextClaim);
@@ -479,14 +472,15 @@ function renderClaimControls({
       const straightClaims = categoryClaimsFor(claims, 'straight');
 
       return (
-        <OptionGrid label="High card">
+        <OptionGrid label="Low card">
           {straightClaims.map((claim) => (
             <RankOptionButton
               key={claimToKey(claim)}
-              rank={claim.highRank}
+              rank={claim.lowRank}
+              label={STRAIGHT_LOW_RANK_LABELS[claim.lowRank]}
               active={
                 selectedClaim.category === 'straight' &&
-                selectedClaim.highRank === claim.highRank
+                selectedClaim.lowRank === claim.lowRank
               }
               disabled={disabled}
               onClick={() => onChange(claim)}
@@ -499,14 +493,14 @@ function renderClaimControls({
       const flushClaims = categoryClaimsFor(claims, 'flush');
 
       return (
-        <OptionGrid label="High card">
+        <OptionGrid label="Suit">
           {flushClaims.map((claim) => (
-            <RankOptionButton
+            <SuitOptionButton
               key={claimToKey(claim)}
-              rank={claim.highRank}
+              suit={claim.suit}
               active={
                 selectedClaim.category === 'flush' &&
-                selectedClaim.highRank === claim.highRank
+                selectedClaim.suit === claim.suit
               }
               disabled={disabled}
               onClick={() => onChange(claim)}
@@ -543,9 +537,13 @@ function renderClaimControls({
                 active={rank === selectedTrip}
                 disabled={disabled}
                 onClick={() => {
-                  const nextClaim = fullHouseClaims.find(
-                    (claim) => claim.tripRank === rank,
-                  );
+                  const nextClaim =
+                    fullHouseClaims.find(
+                      (claim) =>
+                        claim.tripRank === rank &&
+                        claim.pairRank === selectedPair,
+                    ) ??
+                    fullHouseClaims.find((claim) => claim.tripRank === rank);
 
                   if (nextClaim) {
                     onChange(nextClaim);
@@ -591,35 +589,65 @@ function renderClaimControls({
     }
     case 'straight-flush': {
       const straightFlushClaims = categoryClaimsFor(claims, 'straight-flush');
+      const selectedLowRank =
+        selectedClaim.category === 'straight-flush'
+          ? selectedClaim.lowRank
+          : straightFlushClaims[0]?.lowRank;
+      const lowRankOptions = uniqueNumbers(
+        straightFlushClaims.map((claim) => claim.lowRank),
+      );
+      const suitClaims = straightFlushClaims.filter(
+        (claim) => claim.lowRank === selectedLowRank,
+      );
+      const selectedSuit =
+        selectedClaim.category === 'straight-flush' &&
+        selectedClaim.lowRank === selectedLowRank
+          ? selectedClaim.suit
+          : suitClaims[0]?.suit;
 
       return (
-        <OptionGrid label="High card">
-          {straightFlushClaims.map((claim) => (
-            <RankOptionButton
-              key={claimToKey(claim)}
-              rank={claim.highRank}
-              active={
-                selectedClaim.category === 'straight-flush' &&
-                selectedClaim.highRank === claim.highRank
-              }
-              disabled={disabled}
-              onClick={() => onChange(claim)}
-            />
-          ))}
-        </OptionGrid>
+        <>
+          <OptionGrid label="Low card">
+            {lowRankOptions.map((rank) => (
+              <RankOptionButton
+                key={`straight-flush-low-${rank}`}
+                rank={rank}
+                label={
+                  STRAIGHT_LOW_RANK_LABELS[
+                    rank as keyof typeof STRAIGHT_LOW_RANK_LABELS
+                  ]
+                }
+                active={rank === selectedLowRank}
+                disabled={disabled}
+                onClick={() => {
+                  const nextClaim =
+                    straightFlushClaims.find(
+                      (claim) =>
+                        claim.lowRank === rank && claim.suit === selectedSuit,
+                    ) ??
+                    straightFlushClaims.find((claim) => claim.lowRank === rank);
+
+                  if (nextClaim) {
+                    onChange(nextClaim);
+                  }
+                }}
+              />
+            ))}
+          </OptionGrid>
+
+          <OptionGrid label="Suit">
+            {suitClaims.map((claim) => (
+              <SuitOptionButton
+                key={claimToKey(claim)}
+                suit={claim.suit}
+                active={claim.suit === selectedSuit}
+                disabled={disabled}
+                onClick={() => onChange(claim)}
+              />
+            ))}
+          </OptionGrid>
+        </>
       );
     }
-    case 'royal-flush':
-      return (
-        <div className="claim-locked-state">
-          <ClaimCardStack cards={claimToIllustrationCards(selectedClaim)} />
-          <div>
-            <strong>Royal flush</strong>
-            <p className="claim-helper-text">
-              No extra selection needed. This is the strongest possible claim.
-            </p>
-          </div>
-        </div>
-      );
   }
 }

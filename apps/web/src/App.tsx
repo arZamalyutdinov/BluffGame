@@ -296,8 +296,12 @@ function RoomPage() {
         <LobbyView
           snapshot={state.snapshot}
           isConnected={state.isConnected}
+          pendingCommand={state.pendingCommand}
           onSetReady={(ready) => sendCommand('setReady', { ready })}
           onStartMatch={() => sendCommand('startMatch')}
+          onUpdateSettings={(settings) =>
+            sendCommand('updateRoomSettings', settings)
+          }
           onLeaveRoom={() => {
             removeRoomSession(roomCode);
             sendCommand('leaveRoom');
@@ -311,6 +315,10 @@ function RoomPage() {
           pendingCommand={state.pendingCommand}
           onSubmitClaim={(claimKey) => sendCommand('submitClaim', { claimKey })}
           onChallengeClaim={() => sendCommand('challengeClaim')}
+          onSetPauseState={(paused) =>
+            sendCommand('setMatchPaused', { paused })
+          }
+          onSendChatMessage={(text) => sendCommand('sendChatMessage', { text })}
           onRestartMatch={() => sendCommand('restartMatch')}
         />
       )}
