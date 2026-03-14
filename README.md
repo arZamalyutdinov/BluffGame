@@ -126,14 +126,16 @@ This repo also includes a manual GitHub Actions workflow at
 
 Before using it, add this repository secret in GitHub:
 
-- `RENDER_DEPLOY_HOOK_URL`: the deploy hook URL from your Render service
+- `RENDER_API_KEY`: a Render API key with access to the service
+- `RENDER_SERVICE_ID`: the Render service ID
 
 Run the workflow from the Actions tab, enter the branch you want to deploy, and
-the workflow will trigger Render for that branch's current commit.
+the workflow will update the service's linked branch and then trigger a deploy.
 
-Because this uses Render's "deploy a specific commit" flow, Render disables
-automatic deploys for the service after that kind of deploy. That matches the
-manual-only setup above.
+Because of that, the branch shown in the Render dashboard will change to the
+last branch you deployed through the workflow. That fits the manual-only setup
+above better than using a deploy-hook `ref`, which only works for commits that
+already belong to the service's linked branch history.
 
 ## Current Scope
 

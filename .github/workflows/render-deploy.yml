@@ -28,15 +28,31 @@ jobs:
         with:
           ref: ${{ inputs.branch }}
 
-      - name: Resolve commit SHA
-        id: resolve-sha
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Update Render service branch
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_BRANCH: ${{ inputs.branch }}
+        run: |
+          payload=$(printf '{"branch":"%s"}' "${RENDER_BRANCH}")
+
+          curl --fail-with-body --silent --show-error \
+            --request PATCH \
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}" \
+            --header "accept: application/json" \
+            --header "authorization: Bearer ${RENDER_API_KEY}" \
+            --header "content-type: application/json" \
+            --data "${payload}"
 
       - name: Trigger Render deploy
         env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
-          RENDER_COMMIT_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
         run: |
           curl --fail-with-body --silent --show-error \
             --request POST \
-            "${RENDER_DEPLOY_HOOK_URL}?ref=${RENDER_COMMIT_SHA}"
+            --url "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+            --header "accept: application/json" \
+            --header "authorization: Bearer ${RENDER_API_KEY}" \
+            --header "content-type: application/json" \
+            --data '{}'
