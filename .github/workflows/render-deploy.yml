@@ -1,6 +1,9 @@
 name: Render Deploy
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       branch:
@@ -21,18 +24,20 @@ jobs:
     name: Deploy to Render
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      DEPLOY_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref_name }}
 
     steps:
-      - name: Check out selected branch
+      - name: Check out deploy branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.branch }}
+          ref: ${{ env.DEPLOY_BRANCH }}
 
       - name: Update Render service branch
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-          RENDER_BRANCH: ${{ inputs.branch }}
+          RENDER_BRANCH: ${{ env.DEPLOY_BRANCH }}
         run: |
           payload=$(printf '{"branch":"%s"}' "${RENDER_BRANCH}")
 
