@@ -282,14 +282,31 @@ export function ClaimComposer({
           const isActive = category === selectedCategory;
 
           return (
-            <CategoryButton
+            <div
               key={category}
-              category={category}
-              active={isActive}
-              disabled={disabled || !isAvailable}
-              previewClaim={previewClaim}
-              onClick={() => setSelectedCategory(category)}
-            />
+              className={`claim-category-item ${isActive ? 'is-active' : ''}`}
+            >
+              <CategoryButton
+                category={category}
+                active={isActive}
+                disabled={disabled || !isAvailable}
+                previewClaim={previewClaim}
+                onClick={() => setSelectedCategory(category)}
+              />
+
+              {isActive && selectedClaim ? (
+                <div className="claim-category-inline-controls">
+                  {renderClaimControls({
+                    category: selectedCategory,
+                    claims: selectedCategoryClaims,
+                    selectedClaim,
+                    disabled,
+                    onChange: (nextClaim) =>
+                      setSelectedClaimKey(claimToKey(nextClaim)),
+                  })}
+                </div>
+              ) : null}
+            </div>
           );
         })}
       </div>

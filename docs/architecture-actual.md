@@ -400,7 +400,9 @@ Current components are intentionally thin:
   that opens the chat and turn clock in a separate right-side drawer
 - `RoomChat`: snapshot-backed chat log plus a single send-message form
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
-  from the room's selected claim-order preset
+  from the room's selected claim-order preset; on mobile, the active category
+  expands inline to reveal its exact rank or suit selectors directly beneath
+  that category instead of using the shared bottom control block
 
 On narrow screens, the web app does not keep the chat rail as a stacked page
 section. The main gameplay stays full width, the unified top play strip stacks

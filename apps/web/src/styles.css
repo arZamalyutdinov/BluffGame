@@ -707,21 +707,21 @@ h2 {
 }
 
 .claim-visual-card-slot {
+  position: relative;
   flex: 0 0 auto;
-  width: 2.4rem;
-  overflow: hidden;
-}
-
-.claim-card-stack .claim-visual-card-slot:last-child {
   width: 3.4rem;
 }
 
-.claim-card-stack.is-compact .claim-visual-card-slot {
-  width: 1.5rem;
+.claim-card-stack .claim-visual-card-slot + .claim-visual-card-slot {
+  margin-left: -1rem;
 }
 
-.claim-card-stack.is-compact .claim-visual-card-slot:last-child {
+.claim-card-stack.is-compact .claim-visual-card-slot {
   width: 2.1rem;
+}
+
+.claim-card-stack.is-compact .claim-visual-card-slot + .claim-visual-card-slot {
+  margin-left: -0.6rem;
 }
 
 .claim-visual-card {
@@ -779,6 +779,15 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 0.65rem;
+}
+
+.claim-category-item {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.claim-category-inline-controls {
+  display: none;
 }
 
 .claim-category-button {
@@ -1044,6 +1053,26 @@ h2 {
     align-items: stretch;
   }
 
+  .claim-category-toolbar {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .claim-category-item {
+    gap: 0.6rem;
+  }
+
+  .claim-category-button {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .claim-category-inline-controls {
+    display: grid;
+    gap: 0.75rem;
+    padding: 0 0.2rem 0.2rem;
+  }
+
   .claim-panel-header-action {
     justify-content: stretch;
   }
@@ -1055,6 +1084,10 @@ h2 {
   .claim-builder-intro,
   .claim-builder-footer {
     grid-template-columns: 1fr;
+  }
+
+  .claim-builder-body {
+    display: none;
   }
 
   .page-shell {

@@ -25,6 +25,7 @@ export function ClaimCardStack({
         <div
           key={`${card.rank}-${card.suit}-${index}`}
           className="claim-visual-card-slot"
+          style={{ zIndex: index + 1 }}
         >
           <div className={`claim-visual-card suit-${card.suit}`}>
             <div className="claim-visual-corners">

@@ -7,6 +7,7 @@ import {
   cardToShortLabel,
   claimToCompactLabel,
   claimToLabel,
+  sortCardsDescending,
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
@@ -338,7 +339,7 @@ export function TableView({
               <p className="claim-panel-label">Your hand</p>
             </div>
             <div className="claim-panel-stack-area">
-              <ClaimCardStack cards={match.yourHand} />
+              <ClaimCardStack cards={sortCardsDescending(match.yourHand)} />
             </div>
           </section>
 
@@ -450,7 +451,7 @@ export function TableView({
                 <div key={hand.playerId} className="revealed-hand">
                   <strong>{playersById.get(hand.playerId)?.name}</strong>
                   <div className="card-row compact-row">
-                    {hand.cards.map((card) => (
+                    {sortCardsDescending(hand.cards).map((card) => (
                       <span
                         key={`${hand.playerId}-${card.rank}-${card.suit}`}
                         className={`mini-card suit-${card.suit}`}
@@ -490,7 +491,7 @@ export function TableView({
                 <div key={hand.playerId} className="revealed-hand">
                   <strong>{playersById.get(hand.playerId)?.name}</strong>
                   <div className="card-row compact-row">
-                    {hand.cards.map((card) => (
+                    {sortCardsDescending(hand.cards).map((card) => (
                       <span
                         key={`${hand.playerId}-${card.rank}-${card.suit}`}
                         className={`mini-card suit-${card.suit}`}
