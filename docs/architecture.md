@@ -91,7 +91,7 @@ React is the right choice for the browser client, but the authoritative game ser
 - `handSize`: starts at `1`, increases by `1` each time a player loses a showdown, and caps at `5`.
 - `isEliminated`: true when a player loses a showdown while already at `5` cards.
 - `starterSeatIndex`: rotates clockwise from the previous round's starter, skipping eliminated seats.
-- `bestSupportedClaim`: the strongest legal claim that can be built from the union of all revealed cards during showdown.
+- `claimExists`: whether the exact final spoken claim can be built from the union of all revealed cards during showdown.
 
 ## Runtime Flow
 
@@ -102,7 +102,7 @@ React is the right choice for the browser client, but the authoritative game ser
 5. At the start of each round, the server shuffles a standard 52-card deck and deals each active player a number of cards equal to their current `handSize`.
 6. The round starter makes the opening claim.
 7. Each next active player clockwise either raises the claim or challenges it.
-8. A challenge triggers showdown: all round cards are revealed, the server computes `bestSupportedClaim`, and the loser takes a penalty card for future rounds or is eliminated.
+8. A challenge triggers showdown: all round cards are revealed, the server checks whether the exact spoken claim exists, and the loser takes a penalty card for future rounds or is eliminated.
 9. The round ends immediately after showdown, the deck is discarded, and the next round begins from the next eligible starter.
 10. The match ends when only one active player remains.
 
@@ -119,7 +119,7 @@ React is the right choice for the browser client, but the authoritative game ser
 - `room-registry`: in-memory map of room codes to room state.
 - `session-service`: issue and validate per-player session tokens for reconnect attempts.
 - `game-engine`: command handlers for starting matches, submitting claims, resolving challenges, and advancing rounds.
-- `rules-service`: wrappers around shared pure functions for claim comparison and showdown evaluation.
+- `rules-service`: wrappers around shared pure functions for claim comparison and exact-claim evaluation.
 - `realtime-gateway`: Socket.IO event handlers and outbound room snapshot broadcasting.
 - `http-api`: small REST surface for create-room, join-room bootstrap, and health checks.
 
@@ -151,7 +151,7 @@ Each room should process one command at a time through a serialized queue. This 
 - Home: create or join a room.
 - Lobby: show seats, readiness, host controls, and match start conditions.
 - Match table: show the local hand, current claimant, last claim, turn indicator, claim composer, challenge action, and elimination tracker.
-- Showdown summary: reveal cards, `bestSupportedClaim`, loser, next-round starter, and remaining players.
+- Showdown summary: reveal cards, whether the spoken claim existed, loser, next-round starter, and remaining players.
 - Match result: winner banner and restart flow.
 
 ### Client State Strategy
@@ -179,7 +179,7 @@ Each room should process one command at a time through a serialized queue. This 
 
 - `cards/`: suits, ranks, deck helpers, and shuffle utilities for tests.
 - `claims/`: claim categories, serialization, comparison, and display labels.
-- `rules/`: best-claim evaluator, claim validation, showdown outcome logic, and elimination helpers.
+- `rules/`: exact-claim evaluator, claim validation, showdown outcome logic, and elimination helpers.
 - `protocol/`: command and event schemas.
 - `state/`: room, match, round, and player TypeScript types.
 
@@ -218,7 +218,7 @@ The server may collapse some internal phases into simpler snapshots, but the dom
 
 ## Testing Strategy
 
-- Unit-test claim comparison and best-supported-claim evaluation exhaustively.
+- Unit-test claim comparison and exact-claim detection exhaustively.
 - Integration-test server command handlers against multi-player round scenarios.
 - Add snapshot tests for client rendering only after the protocol shape settles.
 - Add Playwright room-flow tests after the first playable vertical slice exists.

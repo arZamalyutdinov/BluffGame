@@ -37,10 +37,10 @@ Claims are made about the combined hidden card pool of all active players in the
 
 1. All active players reveal all of their cards for the current round.
 2. Combine every revealed card into a single shared card pool.
-3. Determine the strongest legal claim that the shared pool supports. This is the `bestSupportedClaim`.
-4. Compare `bestSupportedClaim` to the final spoken claim:
-   - If `bestSupportedClaim` is greater than or equal to the spoken claim, the claim was valid and the challenger loses.
-   - If `bestSupportedClaim` is lower than the spoken claim, the claim was invalid and the claimant loses.
+3. Determine whether the exact final spoken claim can be formed from the shared card pool.
+4. Resolve the challenge:
+   - If the exact spoken claim exists, the claim was valid and the challenger loses.
+   - If the exact spoken claim does not exist, the claim was invalid and the claimant loses.
 5. The round ends immediately after the showdown.
 
 ## Penalties and Elimination
@@ -99,13 +99,13 @@ When two claims share the same category, compare them by the category-specific t
 
 ## Practical Meaning of a Claim
 
-A claim is a lower bound on the strongest poker-style combination present in the shared pool.
+A claim is valid only when the exact spoken combination can be formed from the shared pool. A stronger or different combination does not automatically satisfy the claim unless the spoken combination also exists as a subset of the revealed cards.
 
 Examples:
 
-- If the shared pool supports `pair of kings`, then claims such as `high card ace` and `pair of eights` are also valid.
-- If the shared pool supports `queen-high straight`, then `10-high straight` is valid, but `king-high straight` is not.
-- If the shared pool supports `full house, jacks full of fours`, then `flush ace-high` is also valid because full house outranks flush.
+- If the spoken claim is `2`-to-`6` straight, then a `3`-to-`7` straight does not save the claimant.
+- If the spoken claim is `pair of queens`, then three or four queens still make the claim valid because a pair of queens can be formed from those cards.
+- If the spoken claim is `high card ace`, then the claim is valid only if at least one ace is present in the shared pool.
 
 ## Additional Rulings for V1
 

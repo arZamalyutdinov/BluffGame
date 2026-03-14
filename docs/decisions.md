@@ -12,6 +12,7 @@ Initial planning baseline recorded on March 14, 2026.
 - Use a shared package for rules, protocol schemas, and domain types.
 - Cap v1 rooms at `2` to `8` players.
 - Skip database work, authentication, and social systems for the initial build.
+- Resolve showdowns by checking whether the exact spoken claim can be formed from the revealed shared pool.
 
 ## Working Assumptions
 
