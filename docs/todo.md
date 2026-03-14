@@ -10,10 +10,10 @@
 ## Phase 1: Shared Domain and Rules Engine
 
 - [ ] Define shared card, rank, suit, player, room, round, and match types.
-- [ ] Define the normalized claim model and claim comparator.
+- [ ] Define the normalized claim model and claim comparator, including suit priority for suit-based claims.
 - [ ] Implement exact-claim existence evaluation for the revealed shared pool.
 - [ ] Implement showdown resolution, penalty progression, elimination, and starter rotation.
-- [ ] Add exhaustive unit tests for claim ordering, exact-claim detection, and showdown edge cases.
+- [ ] Add exhaustive unit tests for claim ordering, suit priority, exact-claim detection, and showdown edge cases.
 
 ## Phase 2: Backend Vertical Slice
 

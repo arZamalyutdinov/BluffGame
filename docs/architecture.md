@@ -84,7 +84,7 @@ React is the right choice for the browser client, but the authoritative game ser
 - `Player`: public profile, session token, connection state, elimination state, and current hand-size penalty.
 - `MatchState`: active players, current round number, starter rotation index, and winner state.
 - `RoundState`: dealt cards, current turn seat, current claim, claim history, and showdown result.
-- `Claim`: normalized poker-combination claim with category and comparison tuple.
+- `Claim`: normalized poker-combination claim with category, comparison tuple, and suit metadata for suit-based categories.
 
 ### Important Derived Values
 
@@ -119,7 +119,7 @@ React is the right choice for the browser client, but the authoritative game ser
 - `room-registry`: in-memory map of room codes to room state.
 - `session-service`: issue and validate per-player session tokens for reconnect attempts.
 - `game-engine`: command handlers for starting matches, submitting claims, resolving challenges, and advancing rounds.
-- `rules-service`: wrappers around shared pure functions for claim comparison and exact-claim evaluation.
+- `rules-service`: wrappers around shared pure functions for claim comparison, suit-priority handling, and exact-claim evaluation.
 - `realtime-gateway`: Socket.IO event handlers and outbound room snapshot broadcasting.
 - `http-api`: small REST surface for create-room, join-room bootstrap, and health checks.
 
@@ -179,7 +179,7 @@ Each room should process one command at a time through a serialized queue. This 
 
 - `cards/`: suits, ranks, deck helpers, and shuffle utilities for tests.
 - `claims/`: claim categories, serialization, comparison, and display labels.
-- `rules/`: exact-claim evaluator, claim validation, showdown outcome logic, and elimination helpers.
+- `rules/`: exact-claim evaluator, suit-aware claim validation, showdown outcome logic, and elimination helpers.
 - `protocol/`: command and event schemas.
 - `state/`: room, match, round, and player TypeScript types.
 
@@ -218,7 +218,7 @@ The server may collapse some internal phases into simpler snapshots, but the dom
 
 ## Testing Strategy
 
-- Unit-test claim comparison and exact-claim detection exhaustively.
+- Unit-test claim comparison, suit-priority ordering, and exact-claim detection exhaustively.
 - Integration-test server command handlers against multi-player round scenarios.
 - Add snapshot tests for client rendering only after the protocol shape settles.
 - Add Playwright room-flow tests after the first playable vertical slice exists.

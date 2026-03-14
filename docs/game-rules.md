@@ -83,19 +83,25 @@ When two claims share the same category, compare them by the category-specific t
 | Two pair | `kings and tens` | `[highPairRank, lowPairRank]` |
 | Three of a kind | `three sevens` | `[tripRank]` |
 | Straight | `jack-high straight` | `[highestCardInStraight]` |
-| Flush | `ace-high flush` | `[highestCardInFlush]` |
+| Flush | `ace-high hearts flush` | `[highestCardInFlush, flushSuitPriority]` |
 | Full house | `nines full of fours` | `[tripRank, pairRank]` |
 | Four of a kind | `four fives` | `[quadRank]` |
-| Straight flush | `queen-high straight flush` | `[highestCardInStraightFlush]` |
-| Royal flush | `royal flush` | `[]` |
+| Straight flush | `queen-high clubs straight flush` | `[highestCardInStraightFlush, straightFlushSuitPriority]` |
+| Royal flush | `spades royal flush` | `[royalFlushSuitPriority]` |
 
 ## Rank Rules
 
 - Rank order is `2 < 3 < 4 < 5 < 6 < 7 < 8 < 9 < 10 < J < Q < K < A`.
 - A `5`-high straight (`A-2-3-4-5`) is the lowest straight.
 - An `A`-high straight (`10-J-Q-K-A`) is the highest non-flush straight.
-- Suits matter only for flush, straight flush, and royal flush detection.
-- Suits do not break ties in v1.
+
+## Suit Rules
+
+- Suit order is `diamonds < clubs < hearts < spades`.
+- Suits matter for flush, straight flush, and royal flush claims.
+- When two same-category suit-based claims have the same rank tuple, compare them by suit priority.
+- The exact spoken suit must exist for the claim to be valid at showdown.
+- Some examples below omit the high-card detail when only suit priority is being illustrated.
 
 ## Practical Meaning of a Claim
 
@@ -106,6 +112,13 @@ Examples:
 - If the spoken claim is `2`-to-`6` straight, then a `3`-to-`7` straight does not save the claimant.
 - If the spoken claim is `pair of queens`, then three or four queens still make the claim valid because a pair of queens can be formed from those cards.
 - If the spoken claim is `high card ace`, then the claim is valid only if at least one ace is present in the shared pool.
+- If the spoken claim is `diamonds flush`, then a hearts-only flush does not save the claimant because the exact spoken suit is missing.
+
+## Suit-Raise Examples
+
+- If the previous claim is `diamonds flush`, the next player may raise to `clubs flush`, `hearts flush`, or `spades flush`.
+- If the previous claim is `queen-high clubs straight flush`, the next player may raise to `queen-high hearts straight flush` because hearts outrank clubs.
+- If the previous claim is `hearts royal flush`, only `spades royal flush` is a higher royal flush claim.
 
 ## Additional Rulings for V1
 
