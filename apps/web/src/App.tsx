@@ -16,6 +16,13 @@ import {
   roomSnapshotSchema,
 } from '@bluff-game/shared';
 
+import {
+  CardsIcon,
+  SeatsIcon,
+  SignalIcon,
+  SparkIcon,
+  TimerIcon,
+} from './components/Icons.js';
 import { LobbyView } from './components/LobbyView.js';
 import { TableView } from './components/TableView.js';
 import { createRoom, joinRoom } from './lib/api.js';
@@ -38,11 +45,43 @@ function AppShell() {
   const isRoomRoute = location.pathname.startsWith('/rooms/');
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${isRoomRoute ? 'app-shell-room' : 'app-shell-home'}`}
+    >
+      <div className="scene-backdrop" aria-hidden="true">
+        <div className="scene-glow scene-glow-left" />
+        <div className="scene-glow scene-glow-right" />
+        <div className="scene-grid-lines" />
+        <div className="scene-horizon" />
+      </div>
+
       <header className="topbar">
-        <Link className="brand" to="/">
-          BluffGame
-        </Link>
+        <div className="topbar-inner">
+          <Link className="brand" to="/">
+            <span className="brand-mark">
+              <CardsIcon />
+            </span>
+            <span className="brand-copy">
+              <span className="brand-overline">Private bluff tables</span>
+              <span className="brand-title">BluffGame</span>
+            </span>
+          </Link>
+
+          <div className="scene-chip-row topbar-chip-row">
+            <span className="scene-chip">
+              <SparkIcon className="chip-icon" />
+              Snapshot-driven play
+            </span>
+            <span className="scene-chip">
+              {isRoomRoute ? (
+                <TimerIcon className="chip-icon" />
+              ) : (
+                <SeatsIcon className="chip-icon" />
+              )}
+              {isRoomRoute ? 'Live room sync' : '2-8 players'}
+            </span>
+          </div>
+        </div>
       </header>
 
       <main
@@ -103,17 +142,69 @@ function HomePage() {
   }
 
   return (
-    <section className="surface-grid home-grid">
-      <article className="hero-panel">
-        <p className="eyebrow">Browser bluffing</p>
-        <h1>Call the hand. Push the lie.</h1>
-        <p className="lead">
-          A lightweight multiplayer poker-bluff game with an authoritative Node
-          server, exact-claim showdowns, and no database.
-        </p>
+    <section className="surface-grid home-grid home-scene-grid">
+      <article className="hero-panel home-hero-panel">
+        <div className="scene-chip-row">
+          <span className="scene-chip scene-chip-accent">
+            <SparkIcon className="chip-icon" />
+            Night-table atmosphere
+          </span>
+          <span className="scene-chip">
+            <SignalIcon className="chip-icon" />
+            Realtime authoritative rounds
+          </span>
+        </div>
+
+        <div className="home-copy-stack">
+          <div>
+            <p className="eyebrow">Browser bluffing</p>
+            <h1>Run the table. Sell the lie.</h1>
+          </div>
+
+          <p className="lead">
+            Private multiplayer bluff rounds with exact-claim showdowns,
+            persistent room sync, and a table-first presentation that feels like
+            a live card night instead of a plain dashboard.
+          </p>
+        </div>
+
+        <div className="home-feature-grid">
+          <div className="feature-chip">
+            <CardsIcon className="chip-icon" />
+            Raise with legal claim steps
+          </div>
+          <div className="feature-chip">
+            <SeatsIcon className="chip-icon" />
+            Bring humans and host-added bots
+          </div>
+          <div className="feature-chip">
+            <TimerIcon className="chip-icon" />
+            Live turn timer with host pause
+          </div>
+        </div>
+
+        <div className="home-stage" aria-hidden="true">
+          <div className="home-stage-orbit orbit-left" />
+          <div className="home-stage-orbit orbit-right" />
+          <div className="home-stage-table">
+            <div className="home-stage-seat top-seat" />
+            <div className="home-stage-seat left-seat" />
+            <div className="home-stage-seat right-seat" />
+            <div className="home-stage-center-chip">Private table</div>
+          </div>
+        </div>
       </article>
 
-      <article className="panel stacked-panel">
+      <article className="panel stacked-panel control-deck">
+        <div className="panel-heading">
+          <p className="eyebrow">Open a table</p>
+          <h2>Create or join a room</h2>
+          <p className="claim-helper-text">
+            Use your display name once, then spin up a private code or jump back
+            into an existing table.
+          </p>
+        </div>
+
         <label className="field-label">
           Display name
           <input
@@ -132,7 +223,10 @@ function HomePage() {
             onClick={handleCreate}
             disabled={!displayName.trim() || busyAction !== null}
           >
-            {busyAction === 'create' ? 'Creating...' : 'Create room'}
+            <span className="button-content">
+              <CardsIcon className="button-icon" />
+              {busyAction === 'create' ? 'Creating...' : 'Create room'}
+            </span>
           </button>
 
           <div className="join-box">
@@ -159,7 +253,10 @@ function HomePage() {
                 busyAction !== null
               }
             >
-              {busyAction === 'join' ? 'Joining...' : 'Join room'}
+              <span className="button-content">
+                <SeatsIcon className="button-icon" />
+                {busyAction === 'join' ? 'Joining...' : 'Join room'}
+              </span>
             </button>
           </div>
         </div>
@@ -259,7 +356,7 @@ function RoomPage() {
 
   if (!session) {
     return (
-      <section className="panel">
+      <section className="panel status-panel">
         <h1>Missing room session</h1>
         <p className="lead">
           This browser does not have a saved session for room {roomCode}. Create
@@ -289,7 +386,7 @@ function RoomPage() {
 
   if (!state.snapshot) {
     return (
-      <section className="panel">
+      <section className="panel status-panel">
         <h1>Connecting to room {roomCode}</h1>
         <p className="lead">Waiting for the authoritative room snapshot.</p>
         {state.errorMessage ? (

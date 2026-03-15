@@ -8,6 +8,22 @@ import {
   TURN_TIME_LIMIT_SECONDS_OPTIONS,
 } from '@bluff-game/shared';
 
+import {
+  getPlayerInitials,
+  getSeatToneClass,
+} from '../lib/playerPresentation.js';
+import {
+  BotIcon,
+  CardsIcon,
+  CrownIcon,
+  DoorIcon,
+  PlayIcon,
+  ReadyIcon,
+  SeatsIcon,
+  SignalIcon,
+  TimerIcon,
+} from './Icons.js';
+
 interface LobbyViewProps {
   snapshot: RoomSnapshot;
   isConnected: boolean;
@@ -38,31 +54,53 @@ export function LobbyView({
   const isHost = snapshot.hostPlayerId === snapshot.selfPlayerId;
   const controlsDisabled = !isConnected || pendingCommand !== null;
   const roomIsFull = snapshot.players.length >= 8;
+  const readyCount = snapshot.players.filter((player) => player.isReady).length;
 
   if (!self) {
     return null;
   }
 
   return (
-    <section className="surface-grid">
-      <article className="hero-panel">
-        <div>
-          <p className="eyebrow">Lobby</p>
-          <h1>Room {snapshot.roomCode}</h1>
+    <section className="surface-grid lobby-grid">
+      <article className="hero-panel lobby-hero-panel">
+        <div className="scene-chip-row">
+          <span className="scene-chip scene-chip-accent">
+            <SeatsIcon className="chip-icon" />
+            {snapshot.players.length}/8 seated
+          </span>
+          <span className="scene-chip">
+            <TimerIcon className="chip-icon" />
+            {snapshot.settings.turnTimeLimitSeconds}s turn timer
+          </span>
+          <span className="scene-chip">
+            <CardsIcon className="chip-icon" />
+            {CLAIM_ORDER_PRESET_LABELS[snapshot.settings.claimOrderPreset]}
+          </span>
+        </div>
+
+        <div className="lobby-hero-copy">
+          <div>
+            <p className="eyebrow">Lobby</p>
+            <h1>Room {snapshot.roomCode}</h1>
+          </div>
+
           <p className="lead">
-            Seats are fixed clockwise. Everyone must ready up before the host
-            can start the first round.
+            Seats stay fixed clockwise around the table. Everyone must ready up
+            before the host can deal the opening round.
           </p>
         </div>
 
-        <div className="action-row">
+        <div className="action-row lobby-actions">
           <button
             type="button"
             className={self.isReady ? 'secondary-button' : 'primary-button'}
             onClick={() => onSetReady(!self.isReady)}
             disabled={controlsDisabled}
           >
-            {self.isReady ? 'Mark not ready' : 'Mark ready'}
+            <span className="button-content">
+              <ReadyIcon className="button-icon" />
+              {self.isReady ? 'Mark not ready' : 'Mark ready'}
+            </span>
           </button>
 
           {isHost ? (
@@ -72,7 +110,10 @@ export function LobbyView({
               onClick={onAddBot}
               disabled={controlsDisabled || roomIsFull}
             >
-              Add bot
+              <span className="button-content">
+                <BotIcon className="button-icon" />
+                Add bot
+              </span>
             </button>
           ) : null}
 
@@ -83,7 +124,10 @@ export function LobbyView({
               onClick={onStartMatch}
               disabled={!everyoneReady || controlsDisabled}
             >
-              Start match
+              <span className="button-content">
+                <PlayIcon className="button-icon" />
+                Start match
+              </span>
             </button>
           ) : null}
 
@@ -93,156 +137,229 @@ export function LobbyView({
             onClick={onLeaveRoom}
             disabled={controlsDisabled}
           >
-            Leave room
+            <span className="button-content">
+              <DoorIcon className="button-icon" />
+              Leave room
+            </span>
           </button>
         </div>
       </article>
 
-      <article className="panel">
-        <h2>Room settings</h2>
-        <div className="settings-grid">
-          <div className="field-label">
-            Combination order
-            {isHost ? (
-              <select
-                className="text-input"
-                value={snapshot.settings.claimOrderPreset}
-                disabled={controlsDisabled}
-                onChange={(event) =>
-                  onUpdateSettings({
-                    ...snapshot.settings,
-                    claimOrderPreset: event.target.value as ClaimOrderPreset,
-                  })
-                }
-              >
-                {CLAIM_ORDER_PRESETS.map((preset) => (
-                  <option key={preset} value={preset}>
-                    {CLAIM_ORDER_PRESET_LABELS[preset]}
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="settings-value">
-                {CLAIM_ORDER_PRESET_LABELS[snapshot.settings.claimOrderPreset]}
-              </div>
-            )}
+      <div className="lobby-content-grid">
+        <article className="panel room-settings-panel">
+          <div className="side-panel-header">
+            <div>
+              <p className="eyebrow">House rules</p>
+              <h2>Room settings</h2>
+            </div>
+
+            <span className="pill connected">
+              <SignalIcon className="status-icon" />
+              {isHost ? 'Host can edit' : 'Read only'}
+            </span>
           </div>
 
-          <p className="claim-helper-text">
-            {
-              CLAIM_ORDER_PRESET_DESCRIPTIONS[
-                snapshot.settings.claimOrderPreset
-              ]
-            }
-          </p>
-
-          <div className="field-label">
-            Eliminate at hand size
-            {isHost ? (
-              <select
-                className="text-input"
-                value={snapshot.settings.eliminationHandSize}
-                disabled={controlsDisabled}
-                onChange={(event) =>
-                  onUpdateSettings({
-                    ...snapshot.settings,
-                    eliminationHandSize: Number(event.target.value),
-                  })
-                }
-              >
-                {ELIMINATION_HAND_SIZE_OPTIONS.map((size) => (
-                  <option key={size} value={size}>
-                    {size} cards
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="settings-value">
-                {snapshot.settings.eliminationHandSize} cards
-              </div>
-            )}
-          </div>
-
-          <p className="claim-helper-text">
-            A player who loses while already holding this many cards is
-            eliminated instead of drawing more. Changing settings resets ready
-            states.
-          </p>
-
-          <div className="field-label">
-            Turn timer
-            {isHost ? (
-              <select
-                className="text-input"
-                value={snapshot.settings.turnTimeLimitSeconds}
-                disabled={controlsDisabled}
-                onChange={(event) =>
-                  onUpdateSettings({
-                    ...snapshot.settings,
-                    turnTimeLimitSeconds: Number(event.target.value),
-                  })
-                }
-              >
-                {TURN_TIME_LIMIT_SECONDS_OPTIONS.map((seconds) => (
-                  <option key={seconds} value={seconds}>
-                    {seconds} seconds
-                  </option>
-                ))}
-              </select>
-            ) : (
-              <div className="settings-value">
-                {snapshot.settings.turnTimeLimitSeconds} seconds
-              </div>
-            )}
-          </div>
-
-          <p className="claim-helper-text">
-            If the active player runs out of time, they automatically lose the
-            round. The host can pause and resume the live turn clock during a
-            match.
-          </p>
-        </div>
-      </article>
-
-      <article className="panel">
-        <h2>Players</h2>
-        <ul className="player-list">
-          {snapshot.players.map((player) => (
-            <li key={player.playerId} className="player-row">
-              <div>
-                <div className="player-name-row">
-                  <strong>{player.name}</strong>
-                  {player.isHost ? (
-                    <span className="host-star" aria-label="Host">
-                      ★
-                    </span>
-                  ) : null}
-                </div>
-                <p className="row-meta">
-                  Seat {player.seatIndex + 1}
-                  {player.playerId === snapshot.selfPlayerId ? ' • you' : ''}
-                </p>
-              </div>
-
-              <div className="status-pills">
-                {player.isBot ? <span className="pill bot">bot</span> : null}
-                <span className={player.isReady ? 'pill ready' : 'pill idle'}>
-                  {player.isReady ? 'ready' : 'waiting'}
-                </span>
-                <span
-                  className={
-                    player.connectionStatus === 'connected'
-                      ? 'pill connected'
-                      : 'pill idle'
+          <div className="settings-grid">
+            <div className="field-label">
+              <span className="field-title-with-icon">
+                <CardsIcon className="field-icon" />
+                Combination order
+              </span>
+              {isHost ? (
+                <select
+                  className="text-input"
+                  value={snapshot.settings.claimOrderPreset}
+                  disabled={controlsDisabled}
+                  onChange={(event) =>
+                    onUpdateSettings({
+                      ...snapshot.settings,
+                      claimOrderPreset: event.target.value as ClaimOrderPreset,
+                    })
                   }
                 >
-                  {player.connectionStatus}
-                </span>
-              </div>
-            </li>
-          ))}
-        </ul>
-      </article>
+                  {CLAIM_ORDER_PRESETS.map((preset) => (
+                    <option key={preset} value={preset}>
+                      {CLAIM_ORDER_PRESET_LABELS[preset]}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="settings-value">
+                  {
+                    CLAIM_ORDER_PRESET_LABELS[
+                      snapshot.settings.claimOrderPreset
+                    ]
+                  }
+                </div>
+              )}
+            </div>
+
+            <p className="claim-helper-text">
+              {
+                CLAIM_ORDER_PRESET_DESCRIPTIONS[
+                  snapshot.settings.claimOrderPreset
+                ]
+              }
+            </p>
+
+            <div className="field-label">
+              <span className="field-title-with-icon">
+                <SeatsIcon className="field-icon" />
+                Eliminate at hand size
+              </span>
+              {isHost ? (
+                <select
+                  className="text-input"
+                  value={snapshot.settings.eliminationHandSize}
+                  disabled={controlsDisabled}
+                  onChange={(event) =>
+                    onUpdateSettings({
+                      ...snapshot.settings,
+                      eliminationHandSize: Number(event.target.value),
+                    })
+                  }
+                >
+                  {ELIMINATION_HAND_SIZE_OPTIONS.map((size) => (
+                    <option key={size} value={size}>
+                      {size} cards
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="settings-value">
+                  {snapshot.settings.eliminationHandSize} cards
+                </div>
+              )}
+            </div>
+
+            <p className="claim-helper-text">
+              A player who loses while already holding this many cards is
+              eliminated instead of drawing more. Changing settings resets ready
+              states.
+            </p>
+
+            <div className="field-label">
+              <span className="field-title-with-icon">
+                <TimerIcon className="field-icon" />
+                Turn timer
+              </span>
+              {isHost ? (
+                <select
+                  className="text-input"
+                  value={snapshot.settings.turnTimeLimitSeconds}
+                  disabled={controlsDisabled}
+                  onChange={(event) =>
+                    onUpdateSettings({
+                      ...snapshot.settings,
+                      turnTimeLimitSeconds: Number(event.target.value),
+                    })
+                  }
+                >
+                  {TURN_TIME_LIMIT_SECONDS_OPTIONS.map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds} seconds
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div className="settings-value">
+                  {snapshot.settings.turnTimeLimitSeconds} seconds
+                </div>
+              )}
+            </div>
+
+            <p className="claim-helper-text">
+              If the active player runs out of time, they automatically lose the
+              round. The host can pause and resume the live turn clock during a
+              match.
+            </p>
+          </div>
+        </article>
+
+        <article className="panel lobby-seats-panel">
+          <div className="side-panel-header">
+            <div>
+              <p className="eyebrow">Seat order</p>
+              <h2>Players</h2>
+            </div>
+
+            <span className="pill ready">
+              <ReadyIcon className="status-icon" />
+              {readyCount}/{snapshot.players.length} ready
+            </span>
+          </div>
+
+          <ul className="player-list lobby-player-list">
+            {snapshot.players.map((player) => (
+              <li
+                key={player.playerId}
+                className={`player-row lobby-player-row ${player.isReady ? 'player-row-ready' : ''} ${player.connectionStatus === 'connected' ? 'player-row-connected' : ''}`}
+              >
+                <div
+                  className={`seat-emblem ${getSeatToneClass(player.seatIndex)}`}
+                  aria-hidden="true"
+                >
+                  <span className="seat-emblem-seat">
+                    {player.seatIndex + 1}
+                  </span>
+                  <span className="seat-emblem-initials">
+                    {getPlayerInitials(player.name)}
+                  </span>
+                </div>
+
+                <div className="player-card-body">
+                  <div className="player-primary">
+                    <div className="player-name-row">
+                      <strong>{player.name}</strong>
+                      {player.playerId === snapshot.selfPlayerId ? (
+                        <span className="scene-chip scene-chip-compact">
+                          You
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="row-meta">
+                      Seat {player.seatIndex + 1}
+                      {player.isHost ? ' • host' : ''}
+                      {player.isBot ? ' • bot' : ''}
+                    </p>
+                  </div>
+
+                  <div className="status-pills">
+                    {player.isHost ? (
+                      <span className="pill connected">
+                        <CrownIcon className="status-icon" />
+                        host
+                      </span>
+                    ) : null}
+                    {player.isBot ? (
+                      <span className="pill bot">
+                        <BotIcon className="status-icon" />
+                        bot
+                      </span>
+                    ) : null}
+                    <span
+                      className={player.isReady ? 'pill ready' : 'pill idle'}
+                    >
+                      <ReadyIcon className="status-icon" />
+                      {player.isReady ? 'ready' : 'waiting'}
+                    </span>
+                    <span
+                      className={
+                        player.connectionStatus === 'connected'
+                          ? 'pill connected'
+                          : 'pill idle'
+                      }
+                    >
+                      <SignalIcon className="status-icon" />
+                      {player.connectionStatus}
+                    </span>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </article>
+      </div>
     </section>
   );
 }

@@ -4,3 +4,4 @@ coverage
 apps/web/.vite
 .DS_Store
 *.log
+.playwright-cli

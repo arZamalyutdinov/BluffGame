@@ -30,9 +30,6 @@ const WEB_DIST_DIR = resolve(CURRENT_DIR, '../../web/dist');
 const WEB_DIST_INDEX = resolve(WEB_DIST_DIR, 'index.html');
 const WEB_DIST_ASSETS = resolve(WEB_DIST_DIR, 'assets');
 const HAS_BUILT_WEB = existsSync(WEB_DIST_INDEX);
-const BUILT_WEB_INDEX = HAS_BUILT_WEB
-  ? await readFile(WEB_DIST_INDEX, 'utf8')
-  : null;
 
 const app = Fastify({
   logger: true,
@@ -82,6 +79,26 @@ if (HAS_BUILT_WEB) {
   app.get('/rooms/:roomCode', async (_request, reply) =>
     sendBuiltWebIndex(reply),
   );
+
+  app.get('/:fileName', async (request, reply) => {
+    const filePath = resolveBuiltWebRootFile(
+      String((request.params as { fileName: string }).fileName ?? ''),
+    );
+
+    if (!filePath) {
+      return reply.code(404).send({ message: 'File not found.' });
+    }
+
+    try {
+      const file = await readFile(filePath);
+      return reply
+        .header('Cache-Control', 'public, max-age=3600')
+        .type(getContentType(filePath))
+        .send(file);
+    } catch {
+      return reply.code(404).send({ message: 'File not found.' });
+    }
+  });
 
   app.get('/assets/*', async (request, reply) => {
     const assetPath = resolveBuiltWebAsset(
@@ -253,17 +270,19 @@ function broadcastRoom(roomCode: string) {
   }
 }
 
-function sendBuiltWebIndex(reply: FastifyReply) {
-  if (!BUILT_WEB_INDEX) {
+async function sendBuiltWebIndex(reply: FastifyReply) {
+  if (!existsSync(WEB_DIST_INDEX)) {
     return reply
       .code(503)
       .send({ message: 'Built web client is unavailable.' });
   }
 
+  const builtWebIndex = await readFile(WEB_DIST_INDEX, 'utf8');
+
   return reply
     .header('Cache-Control', 'no-cache')
     .type('text/html; charset=utf-8')
-    .send(BUILT_WEB_INDEX);
+    .send(builtWebIndex);
 }
 
 function resolveBuiltWebAsset(assetName: string) {
@@ -279,6 +298,26 @@ function resolveBuiltWebAsset(assetName: string) {
   }
 
   return assetPath;
+}
+
+function resolveBuiltWebRootFile(fileName: string) {
+  if (!fileName) {
+    return null;
+  }
+
+  const filePath = resolve(WEB_DIST_DIR, fileName);
+  const relativePath = relative(WEB_DIST_DIR, filePath);
+  const pathSegments = relativePath.split(/[\\/]/);
+
+  if (
+    relativePath.startsWith('..') ||
+    relativePath === '' ||
+    pathSegments.length !== 1
+  ) {
+    return null;
+  }
+
+  return filePath;
 }
 
 function getContentType(filePath: string) {

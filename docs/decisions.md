@@ -26,6 +26,10 @@ Initial planning baseline recorded on March 14, 2026.
 - Support host-added room bots that play from fair public-information limits
   instead of reading hidden hands.
 - Returning from a finished match sends the room back to the lobby while keeping the same room code.
+- Use a stylized table-game presentation as the next frontend milestone, with the supplied screenshot serving as visual inspiration rather than a literal feature clone.
+- Build the first visual refresh primarily with CSS, SVG, and lightweight 2D assets instead of introducing canvas, WebGL, or bespoke 3D rendering.
+- Keep all animations presentation-only and snapshot-driven so they never become a second source of gameplay truth.
+- Move the live match and showdown presentation toward a playful neon cartoon table style, with brighter action buttons, stronger contrast, a compact utility HUD, and a bottom action dock for turn actions.
 
 ## Working Assumptions
 
@@ -35,11 +39,13 @@ Initial planning baseline recorded on March 14, 2026.
 - The next round starter rotates from the previous round's starter, not from the previous round's loser or winner.
 - A disconnect does not auto-remove a player from an active match; their seat is held for reconnect.
 - Explicit leave is only supported outside an active match in v1.
+- The first art pass can rely on gradients, glows, iconography, and reusable badge frames before we consider bespoke illustrated environments or premium cosmetic systems.
 
 ## Deferred Decisions
 
 - Whether the host can remove disconnected or idle players.
 - Whether to expose claim suggestions in the UI or keep players fully manual.
+- Whether later versions should support alternate table themes or unlockable cosmetics.
 
 ## Explicitly Out of Scope for Now
 
@@ -49,3 +55,4 @@ Initial planning baseline recorded on March 14, 2026.
 - Match history
 - Ranked matchmaking
 - Spectators
+- Shop or inventory systems

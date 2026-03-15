@@ -159,14 +159,37 @@ Each room should process one command at a time through a serialized queue. This 
 
 ## Frontend Design
 
+Detailed sequencing for the visual overhaul lives in `docs/visual-refresh-plan.md`.
+
 ### Screens
 
 - Home: create or join a room.
 - Lobby: show seats, readiness, host controls, room settings, optional bot
   seats, and match start conditions.
-- Match table: show `Your hand`, `Selected claim`, and `Claim to beat` in that order as a unified top play strip with exactly matched panel widths. Keep an always-visible `Check` action close to the claim-to-beat panel, but outside the panel itself, then place the claim composer underneath as the control surface for the selected-claim panel. On desktop, use two persistent side panels: a left player panel that keeps players visible in stable seat order and lets each row expand to show that player's played-hand history as compact card previews, plus a right chat panel that also houses the live turn clock. On smartphones, move both the table and chat into on-demand slide-in panels controlled by `Show table` and `Show chat`, keep only `Your hand` and `Claim to beat` in the stacked top strip, remove the separate `Selected claim` panel, expand the exact rank/suit selectors directly under the active claim category instead of keeping one shared control block at the bottom, and place the submit action directly under those inline mobile selectors. When a showdown or timeout resolves, show a server-owned animated overlay over the current table that reveals hands, attempts to construct the spoken claim from the revealed cards, and stays on screen until the server exits `showing-result`; on phones, that overlay should behave like a full-screen stacked sheet with the claim construction pinned ahead of the revealed player list.
+- Match table: center the desktop experience on a brighter oval felt table with a compact utility strip above it, anchored player pods around the rail, and a larger self seat at the bottom that also presents the local hand. Compress `Claim to beat` and `Selected claim` into smaller floating cards or dock-level chips near the action area instead of keeping them as large in-table panels. Use a bottom action dock for `Check`, claim-building entry, and host restart flow, then attach the two-step claim composer as an on-demand tray or sheet rather than a permanent panel. Keep players and chat available through drawers or sheets so the default desktop state stays table-first, with mobile collapsing further into simplified seat presentation plus drawer-based secondary panels. When a showdown or timeout resolves, show a server-owned animated overlay over the current table that reveals hands, attempts to construct the spoken claim from the revealed cards, and stays on screen until the server exits `showing-result`; style that overlay as part of the same playful neon table language rather than as a separate dark or glass UI.
 - Showdown summary: reveal cards, whether the spoken claim existed, loser, next-round starter, and remaining players.
 - Match result: winner banner and restart flow.
+
+### Visual Direction
+
+- Treat the live room as a stylized social-card table scene rather than a generic dashboard.
+- Center the desktop experience on an oval felt table, an atmospheric backdrop, floating HUD controls, and stronger seat identity for every player.
+- Use icon-forward controls, suit and rank glyphs, layered lighting, and bold button chrome so the UI feels playful without hiding gameplay state.
+- Use the provided screenshot as art-direction inspiration only; it does not automatically expand scope to include shops, spectators, cosmetics, or other meta systems.
+
+### Presentation Architecture
+
+- Split the room UI into scene layers: backdrop, table surface, seat ring, gameplay HUD, and transient overlay or motion layers.
+- Keep all animation snapshot-driven. Turn pulses, countdown urgency, claim transitions, and round-resolution reveals should react to authoritative server state instead of local rules guesses.
+- Centralize palette, spacing, radii, shadows, glow levels, and motion timings as shared CSS custom properties before doing component-level polish.
+- Prefer CSS, SVG, and lightweight image assets for the first visual refresh. Avoid introducing canvas or WebGL unless the 2D approach proves insufficient.
+- Honor `prefers-reduced-motion` and keep every action legible without relying on animation.
+
+### Responsive Layout Strategy
+
+- Desktop should feel like a full table scene, with supporting controls orbiting the table instead of competing with it in a flat dashboard.
+- Mobile should preserve the same visual language while collapsing secondary chrome into drawers or sheets so the current hand, claim, timer, and primary action stay readable.
+- Decorative art must degrade gracefully on narrow screens. Gameplay controls always win space over ambiance.
 
 ### Client State Strategy
 
@@ -179,12 +202,17 @@ Each room should process one command at a time through a serialized queue. This 
 
 - `RoomShell`
 - `LobbyView`
+- `RoomScene`
 - `TableView`
+- `TableScene`
 - `HandPanel`
 - `ClaimComposer`
 - `ClaimHistory`
-- `PlayerRing`
-- `ShowdownModal`
+- `SeatRing`
+- `SeatBadge`
+- `ActionHud`
+- `RoomChat`
+- `RoundResolutionOverlay`
 - `MatchSummary`
 
 ## Shared Rules and Protocol
