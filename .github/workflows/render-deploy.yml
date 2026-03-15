@@ -6,10 +6,18 @@ on:
       - main
   workflow_dispatch:
     inputs:
-      branch:
+      branch_target:
         description: Branch to deploy to Render
         required: true
-        default: main
+        default: current-workflow-branch
+        type: choice
+        options:
+          - current-workflow-branch
+          - main
+          - custom
+      custom_branch:
+        description: Custom branch name (only used when branch target is custom)
+        required: false
         type: string
 
 concurrency:
@@ -24,20 +32,41 @@ jobs:
     name: Deploy to Render
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      DEPLOY_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || github.ref_name }}
 
     steps:
+      - name: Resolve deploy branch
+        id: resolve-branch
+        env:
+          BRANCH_TARGET: ${{ inputs.branch_target || '' }}
+          CUSTOM_BRANCH: ${{ inputs.custom_branch || '' }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_dispatch" ]]; then
+            deploy_branch="${GITHUB_REF_NAME}"
+          elif [[ "${BRANCH_TARGET}" == "main" ]]; then
+            deploy_branch="main"
+          elif [[ "${BRANCH_TARGET}" == "custom" ]]; then
+            if [[ -z "${CUSTOM_BRANCH}" ]]; then
+              echo "Custom branch name is required when branch target is custom." >&2
+              exit 1
+            fi
+
+            deploy_branch="${CUSTOM_BRANCH}"
+          else
+            deploy_branch="${GITHUB_REF_NAME}"
+          fi
+
+          echo "branch=${deploy_branch}" >> "${GITHUB_OUTPUT}"
+
       - name: Check out deploy branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.DEPLOY_BRANCH }}
+          ref: ${{ steps.resolve-branch.outputs.branch }}
 
       - name: Update Render service branch
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
           RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
-          RENDER_BRANCH: ${{ env.DEPLOY_BRANCH }}
+          RENDER_BRANCH: ${{ steps.resolve-branch.outputs.branch }}
         run: |
           payload=$(printf '{"branch":"%s"}' "${RENDER_BRANCH}")
 

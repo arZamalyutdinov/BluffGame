@@ -31,12 +31,21 @@
 - [x] Build the match table with local hand, last claim, current turn, claim composer, and challenge button.
 - [x] Build showdown and winner states driven entirely by server snapshots.
 
-## Phase 4: Quality and Polish
+## Phase 4: Visual Refresh
+
+- [ ] Lock the target art direction, table geometry, palette, typography, and icon language in `docs/visual-refresh-plan.md`.
+- [ ] Introduce a shared scene shell, design tokens, and reusable HUD styles across home, lobby, and match screens.
+- [ ] Rebuild the match layout around an oval table scene with anchored seats, clearer player identity, and floating room controls.
+- [ ] Add reusable suit, rank, and status icon assets plus host, bot, ready, active-turn, and eliminated badges.
+- [ ] Add motion for room entry, turn emphasis, claim submission, timer urgency, and result reveals, with reduced-motion fallbacks.
+- [ ] Tune the refreshed layout across desktop and mobile, including drawer or sheet behavior for secondary panels.
+
+## Phase 5: Quality and Hardening
 
 - [ ] Add integration tests for multi-player command sequences on the server.
 - [ ] Add end-to-end browser coverage for room creation through match completion.
-- [ ] Improve reconnect UX and error handling.
-- [ ] Tune mobile layout and interaction affordances.
+- [ ] Improve reconnect UX and error handling inside the new scene shell.
+- [ ] Profile render performance so decorative layers do not hurt gameplay responsiveness.
 - [ ] Add basic observability and structured logging for room events.
 
 ## Later, Not Now

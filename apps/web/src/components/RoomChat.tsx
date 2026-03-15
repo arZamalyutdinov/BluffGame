@@ -2,6 +2,8 @@ import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import { MAX_CHAT_MESSAGE_LENGTH, type RoomSnapshot } from '@bluff-game/shared';
 
+import { ChatIcon, SendIcon, SignalIcon } from './Icons.js';
+
 interface RoomChatProps {
   messages: RoomSnapshot['chatMessages'];
   selfPlayerId: string;
@@ -30,6 +32,7 @@ export function RoomChat({
 }: RoomChatProps) {
   const [draft, setDraft] = useState('');
   const logRef = useRef<HTMLDivElement | null>(null);
+  const latestMessageId = messages.at(-1)?.messageId;
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -62,9 +65,13 @@ export function RoomChat({
     <section className="side-panel-section room-chat">
       {!hideHeader ? (
         <div className="side-panel-header">
-          <h2>Room chat</h2>
+          <div className="panel-title-with-icon">
+            <ChatIcon className="status-icon" />
+            <h2>Room chat</h2>
+          </div>
 
           <span className={isConnected ? 'pill connected' : 'pill idle'}>
+            <SignalIcon className="status-icon" />
             {isConnected ? 'connected' : 'offline'}
           </span>
         </div>
@@ -80,7 +87,7 @@ export function RoomChat({
             return (
               <article
                 key={message.messageId}
-                className={`chat-message ${isSelf ? 'is-self' : ''}`}
+                className={`chat-message ${isSelf ? 'is-self' : ''} ${message.messageId === latestMessageId ? 'is-latest' : ''}`}
               >
                 <div className="chat-message-header">
                   <strong>{isSelf ? 'You' : message.playerName}</strong>
@@ -108,9 +115,10 @@ export function RoomChat({
 
         <button
           type="submit"
-          className="secondary-button"
+          className="secondary-button chat-send-button"
           disabled={disabled || !draft.trim()}
         >
+          <SendIcon className="button-icon" />
           {pendingCommand === 'sendChatMessage' ? 'Sending...' : 'Send'}
         </button>
       </form>

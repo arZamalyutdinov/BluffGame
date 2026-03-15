@@ -59,6 +59,7 @@ interface ClaimPreviewPanelProps {
   helperText?: string | undefined;
   className?: string | undefined;
   headerAction?: ReactNode;
+  compactCards?: boolean | undefined;
 }
 
 export function ClaimPreviewPanel({
@@ -69,6 +70,7 @@ export function ClaimPreviewPanel({
   helperText,
   className,
   headerAction,
+  compactCards = false,
 }: ClaimPreviewPanelProps) {
   return (
     <section className={`claim-visual-panel ${className ?? ''}`.trim()}>
@@ -82,7 +84,10 @@ export function ClaimPreviewPanel({
       {claim ? (
         <>
           <div className="claim-panel-stack-area">
-            <ClaimCardStack cards={claimToIllustrationCards(claim)} />
+            <ClaimCardStack
+              cards={claimToIllustrationCards(claim)}
+              compact={compactCards}
+            />
           </div>
           <strong className="claim-panel-title">
             {claimToCompactLabel(claim)}

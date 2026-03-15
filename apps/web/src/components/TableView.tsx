@@ -1,4 +1,11 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   type Claim,
@@ -12,8 +19,21 @@ import {
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+import {
+  getPlayerInitials,
+  getSeatToneClass,
+} from '../lib/playerPresentation.js';
 import { ClaimComposer } from './ClaimComposer.js';
-import { ClaimCardStack, ClaimPreviewPanel } from './ClaimPreview.js';
+import { ClaimCardStack } from './ClaimPreview.js';
+import {
+  BotIcon,
+  CardsIcon,
+  CrownIcon,
+  ReadyIcon,
+  SignalIcon,
+  TimerIcon,
+} from './Icons.js';
+import { PlayerAvatar } from './PlayerAvatar.js';
 import { RoomChat } from './RoomChat.js';
 import { RoundResolutionOverlay } from './RoundResolutionOverlay.js';
 
@@ -42,6 +62,61 @@ function sortPlayersBySeat(snapshot: RoomSnapshot): PlayerSnapshot[] {
   return [...snapshot.players].sort(
     (left, right) => left.seatIndex - right.seatIndex,
   );
+}
+
+function rotatePlayersForTable(
+  players: PlayerSnapshot[],
+  anchorPlayerId: string,
+): PlayerSnapshot[] {
+  const anchorIndex = players.findIndex(
+    (player) => player.playerId === anchorPlayerId,
+  );
+
+  if (anchorIndex === -1) {
+    return players;
+  }
+
+  return [...players.slice(anchorIndex), ...players.slice(0, anchorIndex)];
+}
+
+function buildTableSeatStyle(index: number, total: number): CSSProperties {
+  const presetPositions =
+    total === 2
+      ? [
+          { x: 0, y: 1.04 },
+          { x: 0, y: -1.22 },
+        ]
+      : total === 3
+        ? [
+            { x: 0, y: 1.04 },
+            { x: -1.02, y: -0.42 },
+            { x: 1.02, y: -0.42 },
+          ]
+        : total === 4
+          ? [
+              { x: 0, y: 1.04 },
+              { x: -1.08, y: 0.12 },
+              { x: 0, y: -1.16 },
+              { x: 1.08, y: 0.12 },
+            ]
+          : null;
+
+  if (presetPositions?.[index]) {
+    return {
+      '--table-seat-x': `${presetPositions[index].x}`,
+      '--table-seat-y': `${presetPositions[index].y}`,
+    } as CSSProperties;
+  }
+
+  const angleInRadians =
+    ((90 + (360 / Math.max(total, 1)) * index) * Math.PI) / 180;
+  const offsetX = Math.cos(angleInRadians);
+  const offsetY = Math.sin(angleInRadians);
+
+  return {
+    '--table-seat-x': `${offsetX}`,
+    '--table-seat-y': `${offsetY}`,
+  } as CSSProperties;
 }
 
 interface ResultDetailsProps {
@@ -103,9 +178,20 @@ export function TableView({
   const match = snapshot.match;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
+  const [isClaimTrayOpen, setIsClaimTrayOpen] = useState(false);
   const [selectedComposerClaim, setSelectedComposerClaim] = useState<
     Claim | undefined
   >(undefined);
+  const [turnAnnouncement, setTurnAnnouncement] = useState<{
+    playerId: string;
+    token: number;
+  } | null>(null);
+  const [claimPulse, setClaimPulse] = useState<{
+    playerId: string;
+    sequenceNumber: number;
+  } | null>(null);
+  const previousTurnPlayerIdRef = useRef<string | null>(null);
+  const previousClaimSequenceRef = useRef<number | null>(null);
   const turnTimer = match?.turnTimer;
 
   useEffect(() => {
@@ -161,6 +247,8 @@ export function TableView({
     return null;
   }
 
+  const yourHand = match.yourHand;
+
   const resolutionKey = buildResolutionKey(match);
   const activeResolution = useMemo(() => {
     if (match.showdown) {
@@ -191,6 +279,10 @@ export function TableView({
   );
   const currentPlayer = playersById.get(match.currentTurnPlayerId);
   const orderedPlayers = sortPlayersBySeat(snapshot);
+  const tablePlayers = rotatePlayersForTable(
+    orderedPlayers,
+    snapshot.selfPlayerId,
+  );
   const activePlayersInOrder = orderedPlayers.filter(
     (player) => !player.isEliminated,
   );
@@ -217,7 +309,22 @@ export function TableView({
       ? turnTimer.remainingMs
       : Math.max(0, turnTimer.deadlineAtMs - nowMs)
     : null;
+  const turnProgress =
+    turnTimer && remainingMs !== null
+      ? Math.min(
+          Math.max(remainingMs / (turnTimer.durationSeconds * 1000), 0),
+          1,
+        )
+      : undefined;
   const isPaused = turnTimer?.isPaused ?? false;
+  const timerUrgency =
+    isPaused || remainingMs === null
+      ? 'paused'
+      : remainingMs <= 10_000
+        ? 'critical'
+        : remainingMs <= 20_000
+          ? 'warning'
+          : 'steady';
   const actionDisabled =
     !isConnected ||
     pendingCommand !== null ||
@@ -226,43 +333,158 @@ export function TableView({
     isShowingResult;
   const checkDisabled =
     !match.lastClaim || !isMyTurn || !!winner || actionDisabled;
-  const selectedClaimEmptyState = winner
+  const tableStatus = winner
     ? {
-        title: 'No active move',
-        text: 'The match is over.',
+        label: 'Match winner',
+        title: winner.name,
+        detail: 'The table is closed until the host returns to the lobby.',
       }
-    : isPaused
+    : isShowingResult
       ? {
-          title: 'Claim selection paused',
-          text: 'The host has paused the active turn.',
+          label: 'Showdown',
+          title: 'Resolving round',
+          detail: 'The server is presenting the round result right now.',
         }
-      : isShowingResult
+      : isPaused
         ? {
-            title: 'Resolving round',
-            text: 'Waiting for the result sequence to finish.',
+            label: 'Clock paused',
+            title: currentPlayer?.name ?? 'Paused',
+            detail: 'The host paused this turn. No moves can be made yet.',
           }
-        : isMyTurn
+        : match.lastClaim
           ? {
-              title: 'Pick a claim',
-              text: 'Choose a category below, then tune the exact hand.',
+              label: 'Claim to beat',
+              title: claimToCompactLabel(match.lastClaim),
+              detail: lastClaimEntry
+                ? `Spoken by ${playersById.get(lastClaimEntry.playerId)?.name ?? 'Unknown'}.`
+                : 'Raise it or check it.',
             }
           : {
-              title: 'Waiting for your turn',
-              text: 'Your next move will appear here once the turn comes around.',
+              label: 'Table open',
+              title: 'Opening move',
+              detail: 'Any legal claim can start the round.',
             };
+  const canOpenClaimTray =
+    isMyTurn && !winner && !isPaused && !isShowingResult && !actionDisabled;
+  const dockMessage = winner
+    ? `${winner.name} won the match.`
+    : isPaused
+      ? 'The turn clock is paused.'
+      : isShowingResult
+        ? 'Round result is being shown.'
+        : isMyTurn
+          ? match.lastClaim
+            ? 'Raise the current claim or check it.'
+            : 'Open the round with any legal claim.'
+          : `Waiting for ${currentPlayer?.name ?? 'the active player'} to act.`;
+
+  useEffect(() => {
+    if (winner || isShowingResult) {
+      previousTurnPlayerIdRef.current = currentTurnPlayerId;
+      setTurnAnnouncement(null);
+      return;
+    }
+
+    const previousTurnPlayerId = previousTurnPlayerIdRef.current;
+
+    if (previousTurnPlayerId && previousTurnPlayerId !== currentTurnPlayerId) {
+      setTurnAnnouncement({
+        playerId: currentTurnPlayerId,
+        token: Date.now(),
+      });
+    }
+
+    previousTurnPlayerIdRef.current = currentTurnPlayerId;
+  }, [currentTurnPlayerId, isShowingResult, winner]);
+
+  useEffect(() => {
+    if (!turnAnnouncement) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setTurnAnnouncement(null);
+    }, 1_500);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [turnAnnouncement]);
+
+  useEffect(() => {
+    const nextSequenceNumber = lastClaimEntry?.sequenceNumber ?? null;
+    const previousSequenceNumber = previousClaimSequenceRef.current;
+
+    if (
+      previousSequenceNumber !== null &&
+      nextSequenceNumber !== null &&
+      nextSequenceNumber !== previousSequenceNumber &&
+      lastClaimEntry
+    ) {
+      setClaimPulse({
+        playerId: lastClaimEntry.playerId,
+        sequenceNumber: nextSequenceNumber,
+      });
+    }
+
+    previousClaimSequenceRef.current = nextSequenceNumber;
+  }, [lastClaimEntry]);
+
+  useEffect(() => {
+    if (!claimPulse) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setClaimPulse(null);
+    }, 1_150);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [claimPulse]);
+
+  useEffect(() => {
+    if (!canOpenClaimTray) {
+      setIsClaimTrayOpen(false);
+    }
+  }, [canOpenClaimTray]);
 
   function renderChatRailContent(hideChatHeader = false) {
     return (
       <>
         {turnTimer && remainingMs !== null && !winner ? (
-          <section className="side-panel-section side-panel-card turn-timer-panel turn-timer-side-panel">
+          <section
+            className={`side-panel-section side-panel-card turn-timer-panel turn-timer-side-panel is-${timerUrgency}`}
+          >
             <div className="turn-timer-header">
-              <h2>Turn clock</h2>
+              <div>
+                <p className="claim-panel-label">Turn clock</p>
+                <h2>{currentPlayer?.name ?? 'Active player'}</h2>
+              </div>
+
+              <span className={`turn-timer-state is-${timerUrgency}`}>
+                {isPaused
+                  ? 'Paused'
+                  : timerUrgency === 'critical'
+                    ? 'Critical'
+                    : timerUrgency === 'warning'
+                      ? 'Warning'
+                      : 'Live'}
+              </span>
             </div>
 
-            <div className={`turn-timer-value ${isPaused ? 'is-paused' : ''}`}>
+            <div
+              className={`turn-timer-value ${isPaused ? 'is-paused' : ''} ${timerUrgency === 'warning' ? 'is-warning' : ''} ${timerUrgency === 'critical' ? 'is-critical' : ''}`}
+            >
               {formatRemainingMs(remainingMs)}
             </div>
+
+            <p className="claim-helper-text">
+              {isPaused
+                ? 'The host has paused the clock for the current seat.'
+                : `${currentPlayer?.name ?? 'The active player'} is on the clock.`}
+            </p>
 
             {isHost ? (
               <div className="turn-timer-actions">
@@ -299,6 +521,7 @@ export function TableView({
           <h2>Players</h2>
 
           <span className="pill connected">
+            <ReadyIcon className="status-icon" />
             {activePlayersInOrder.length} active
           </span>
         </div>
@@ -314,34 +537,59 @@ export function TableView({
               >
                 <details className="player-details">
                   <summary className="player-details-summary">
-                    <div className="player-primary">
-                      <div className="player-name-row">
-                        <strong>{player.name}</strong>
+                    <div
+                      className={`seat-emblem ${getSeatToneClass(player.seatIndex)}`}
+                      aria-hidden="true"
+                    >
+                      <span className="seat-emblem-seat">
+                        {player.seatIndex + 1}
+                      </span>
+                      <span className="seat-emblem-initials">
+                        {getPlayerInitials(player.name)}
+                      </span>
+                    </div>
+
+                    <div className="player-card-body">
+                      <div className="player-primary">
+                        <div className="player-name-row">
+                          <strong>{player.name}</strong>
+                          {player.playerId === snapshot.selfPlayerId ? (
+                            <span className="scene-chip scene-chip-compact">
+                              You
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="row-meta">
+                          Seat {player.seatIndex + 1}
+                          {player.isHost ? ' • host' : ''}
+                        </p>
+                      </div>
+
+                      <div className="status-pills player-status-pills">
                         {player.isHost ? (
-                          <span className="host-star" aria-label="Host">
-                            ★
+                          <span className="pill connected">
+                            <CrownIcon className="status-icon" />
+                            host
                           </span>
                         ) : null}
                         {player.isBot ? (
-                          <span className="pill bot">bot</span>
+                          <span className="pill bot">
+                            <BotIcon className="status-icon" />
+                            bot
+                          </span>
                         ) : null}
+                        <span
+                          className={
+                            player.isEliminated ? 'pill idle' : 'pill ready'
+                          }
+                        >
+                          <CardsIcon className="status-icon" />
+                          {player.isEliminated
+                            ? 'out'
+                            : `${player.cardCount} dealt`}
+                        </span>
                       </div>
-
-                      {player.playerId === snapshot.selfPlayerId ? (
-                        <p className="row-meta">you</p>
-                      ) : null}
-                    </div>
-
-                    <div className="status-pills player-status-pills">
-                      <span
-                        className={
-                          player.isEliminated ? 'pill idle' : 'pill ready'
-                        }
-                      >
-                        {player.isEliminated
-                          ? 'out'
-                          : `${player.cardCount} dealt`}
-                      </span>
                     </div>
                   </summary>
 
@@ -378,15 +626,80 @@ export function TableView({
     );
   }
 
+  function renderTableSeatRing() {
+    return (
+      <div className="table-seat-ring" aria-label="Table seats">
+        {tablePlayers.map((player, index) => {
+          const isCurrentTurn = player.playerId === currentTurnPlayerId;
+          const isSelf = player.playerId === snapshot.selfPlayerId;
+          const isTurnArriving = turnAnnouncement?.playerId === player.playerId;
+          const seatCountLabel = player.isEliminated
+            ? 'Out'
+            : `${player.cardCount} ${player.cardCount === 1 ? 'card' : 'cards'}`;
+          const timerTone = isCurrentTurn ? timerUrgency : undefined;
+          const seatBadgeTone = isSelf
+            ? 'table-seat-chip-self'
+            : player.isBot
+              ? 'table-seat-chip-bot'
+              : player.isHost
+                ? 'table-seat-chip-host'
+                : null;
+          const seatBadgeLabel = isSelf
+            ? 'You'
+            : player.isBot
+              ? 'Bot'
+              : player.isHost
+                ? 'Host'
+                : null;
+
+          return (
+            <article
+              key={player.playerId}
+              className={`table-seat-card ${getSeatToneClass(player.seatIndex)} ${isCurrentTurn ? 'is-current-turn' : ''} ${player.isEliminated ? 'is-eliminated' : ''} ${isTurnArriving ? 'is-turn-arriving' : ''} ${isSelf ? 'is-self-seat' : ''}`}
+              style={buildTableSeatStyle(index, tablePlayers.length)}
+            >
+              <div className="table-seat-avatar-wrap">
+                <PlayerAvatar
+                  name={player.name}
+                  seatIndex={player.seatIndex}
+                  size={isSelf ? 'md' : 'sm'}
+                  {...(isCurrentTurn && turnProgress !== undefined
+                    ? {
+                        timerProgress: turnProgress,
+                        timerTone,
+                      }
+                    : {})}
+                />
+                <span
+                  className={`table-seat-count ${player.isEliminated ? 'is-eliminated' : ''} ${isCurrentTurn ? 'is-current-turn' : ''}`}
+                >
+                  {player.isEliminated ? 'Out' : player.cardCount}
+                </span>
+              </div>
+
+              <div className="table-seat-badge">
+                <div className="table-seat-name-row">
+                  <strong>{player.name}</strong>
+                  {seatBadgeLabel && seatBadgeTone ? (
+                    <span className={`table-seat-chip ${seatBadgeTone}`}>
+                      {seatBadgeLabel}
+                    </span>
+                  ) : null}
+                </div>
+                <span className="table-seat-meta">{seatCountLabel}</span>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
+
   return (
     <section className="surface-grid match-layout">
-      <aside className="panel table-side-panel players-side-panel">
-        {renderPlayerTableSection()}
-      </aside>
-
       <article className="hero-panel match-main-panel">
-        <div className="table-headline">
-          <div>
+        <div className="match-scene-header">
+          <div className="match-copy-stack">
             <p className="eyebrow">Match</p>
             <h1>Round {match.roundNumber}</h1>
             <p className="lead">
@@ -402,7 +715,7 @@ export function TableView({
             </p>
           </div>
 
-          <div className="status-pills">
+          <div className="table-utility-strip">
             <button
               type="button"
               className="ghost-button table-launcher-button"
@@ -413,7 +726,7 @@ export function TableView({
                 onSetTablePanelOpen(!isTablePanelOpen);
               }}
             >
-              {isTablePanelOpen ? 'Hide table' : 'Show table'}
+              {isTablePanelOpen ? 'Hide players' : 'Show players'}
             </button>
             <button
               type="button"
@@ -427,109 +740,175 @@ export function TableView({
             >
               {isChatPanelOpen ? 'Hide chat' : 'Show chat'}
             </button>
-            <span className="pill ready">Room {snapshot.roomCode}</span>
+            {isHost && turnTimer && !winner ? (
+              <button
+                type="button"
+                className="ghost-button table-utility-button"
+                onClick={() => onSetPauseState(!isPaused)}
+                disabled={!isConnected || pendingCommand !== null}
+              >
+                {isPaused ? 'Resume' : 'Pause'}
+              </button>
+            ) : null}
+            <span className="pill ready">
+              <CardsIcon className="status-icon" />
+              Room {snapshot.roomCode}
+            </span>
             {turnTimer && remainingMs !== null ? (
-              <span className={isPaused ? 'pill idle' : 'pill connected'}>
+              <span
+                className={`${isPaused ? 'pill idle' : 'pill connected'} timer-pill timer-pill-${timerUrgency}`}
+              >
+                <TimerIcon className="status-icon" />
                 {isPaused ? 'paused' : formatRemainingMs(remainingMs)}
               </span>
             ) : null}
             <span className={isConnected ? 'pill connected' : 'pill idle'}>
+              <SignalIcon className="status-icon" />
               {isConnected ? 'live' : 'reconnecting'}
             </span>
           </div>
         </div>
 
-        <div className="table-grid">
-          <section className="claim-visual-panel hand-preview-panel">
-            <div className="claim-panel-header">
-              <p className="claim-panel-label">Your hand</p>
-            </div>
-            <div className="claim-panel-stack-area">
-              <ClaimCardStack cards={sortCardsDescending(match.yourHand)} />
-            </div>
-          </section>
+        <div
+          className={`table-stage ${timerUrgency === 'warning' ? 'is-warning-clock' : ''} ${timerUrgency === 'critical' ? 'is-critical-clock' : ''}`}
+        >
+          <div className="table-stage-scenery" aria-hidden="true">
+            <div className="table-stage-glow table-stage-glow-left" />
+            <div className="table-stage-glow table-stage-glow-right" />
+            <div className="table-stage-city table-stage-city-left" />
+            <div className="table-stage-city table-stage-city-right" />
+            <div className="table-stage-hill table-stage-hill-left" />
+            <div className="table-stage-hill table-stage-hill-right" />
+          </div>
 
-          <ClaimPreviewPanel
-            label="Selected claim"
-            claim={selectedComposerClaim}
-            emptyTitle={selectedClaimEmptyState.title}
-            emptyText={selectedClaimEmptyState.text}
-            helperText={
-              selectedComposerClaim && match.lastClaim
-                ? `Must beat ${claimToCompactLabel(match.lastClaim)}.`
-                : undefined
-            }
-            className="claim-selection-panel"
-          />
-
-          <div className="claim-to-beat-column">
-            <ClaimPreviewPanel
-              label="Claim to beat"
-              claim={match.lastClaim}
-              emptyTitle="Opening move"
-              emptyText="No claim is on the table yet. The starter can open with any legal claim."
-              helperText={
-                lastClaimEntry
-                  ? `Last spoken by ${playersById.get(lastClaimEntry.playerId)?.name ?? 'Unknown'}.`
-                  : undefined
-              }
-              className="claim-to-beat-panel"
-            />
-
-            <div className="claim-side-action claim-check-action">
-              <button
-                type="button"
-                className="secondary-button check-action-button"
-                onClick={onChallengeClaim}
-                disabled={checkDisabled}
+          <div className="table-stage-inner">
+            {turnAnnouncement ? (
+              <div
+                key={turnAnnouncement.token}
+                className={`turn-handoff-banner ${turnAnnouncement.playerId === snapshot.selfPlayerId ? 'is-self' : ''}`}
               >
-                Check
-              </button>
+                <span className="turn-handoff-kicker">Turn handoff</span>
+                <strong>
+                  {turnAnnouncement.playerId === snapshot.selfPlayerId
+                    ? 'Your move'
+                    : `${playersById.get(turnAnnouncement.playerId)?.name ?? 'Player'} to act`}
+                </strong>
+              </div>
+            ) : null}
+
+            <div
+              className={`table-center-status ${claimPulse && lastClaimEntry?.sequenceNumber === claimPulse.sequenceNumber ? 'is-fresh-claim' : ''}`}
+            >
+              <span className="table-center-status-label">
+                {tableStatus.label}
+              </span>
+              <strong className="table-center-status-title">
+                {tableStatus.title}
+              </strong>
+              <span className="table-center-status-detail">
+                {tableStatus.detail}
+              </span>
+            </div>
+
+            {renderTableSeatRing()}
+
+            <div className="table-hand-rail" aria-label="Your hand">
+              <ClaimCardStack cards={sortCardsDescending(yourHand)} />
             </div>
           </div>
         </div>
 
-        {!winner ? (
-          <div className="action-column">
-            {isPaused ? (
-              <div className="muted-panel">
-                Game paused. Waiting for the host to resume the current turn.
+        <div
+          className={`table-action-stack ${canOpenClaimTray && isClaimTrayOpen ? 'has-open-tray' : ''}`}
+        >
+          <div className="table-action-note">{dockMessage}</div>
+
+          {!isClaimTrayOpen && selectedComposerClaim ? (
+            <div className="table-selected-claim-pill">
+              Selected claim: {claimToCompactLabel(selectedComposerClaim)}
+            </div>
+          ) : null}
+
+          {winner ? (
+            <div className="table-action-dock">
+              {isHost ? (
+                <button
+                  type="button"
+                  className="table-action-button table-action-button-primary table-action-button-wide"
+                  onClick={onRestartMatch}
+                >
+                  Return to lobby
+                </button>
+              ) : (
+                <div className="table-action-placeholder">
+                  Waiting for the host to return to the lobby.
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <div className="table-action-zone">
+                <div className="table-action-dock">
+                  <button
+                    type="button"
+                    className={`table-action-button table-action-button-primary ${isClaimTrayOpen ? 'is-open' : ''}`}
+                    onClick={() => setIsClaimTrayOpen((current) => !current)}
+                    disabled={!canOpenClaimTray}
+                  >
+                    {isClaimTrayOpen
+                      ? 'Hide claim'
+                      : selectedComposerClaim
+                        ? 'Edit claim'
+                        : match.lastClaim
+                          ? 'Build claim'
+                          : 'Open claim'}
+                  </button>
+
+                  <button
+                    type="button"
+                    className="table-action-button table-action-button-check"
+                    onClick={onChallengeClaim}
+                    disabled={checkDisabled}
+                  >
+                    Check
+                  </button>
+                </div>
+
+                {canOpenClaimTray && isClaimTrayOpen ? (
+                  <div className="claim-tray-shell">
+                    <div className="claim-tray-header">
+                      <div>
+                        <p className="eyebrow">Claim tray</p>
+                        <h2>Pick a claim</h2>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="ghost-button table-utility-button"
+                        onClick={() => setIsClaimTrayOpen(false)}
+                      >
+                        Close
+                      </button>
+                    </div>
+
+                    <ClaimComposer
+                      claimOrderPreset={snapshot.settings.claimOrderPreset}
+                      disabled={actionDisabled}
+                      {...(match.lastClaim
+                        ? { lastClaim: match.lastClaim }
+                        : {})}
+                      onSelectedClaimChange={setSelectedComposerClaim}
+                      onSubmit={(claimKey) => {
+                        setIsClaimTrayOpen(false);
+                        onSubmitClaim(claimKey);
+                      }}
+                    />
+                  </div>
+                ) : null}
               </div>
-            ) : isShowingResult ? (
-              <div className="muted-panel">
-                Round result is being shown. The next turn starts automatically
-                after the reveal.
-              </div>
-            ) : isMyTurn ? (
-              <>
-                <ClaimComposer
-                  claimOrderPreset={snapshot.settings.claimOrderPreset}
-                  disabled={actionDisabled}
-                  {...(match.lastClaim ? { lastClaim: match.lastClaim } : {})}
-                  onSelectedClaimChange={setSelectedComposerClaim}
-                  onSubmit={onSubmitClaim}
-                />
-              </>
-            ) : (
-              <div className="muted-panel">
-                Waiting for {currentPlayer?.name ?? 'the active player'} to make
-                a move.
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="action-row">
-            {isHost ? (
-              <button
-                type="button"
-                className="primary-button"
-                onClick={onRestartMatch}
-              >
-                Return to lobby
-              </button>
-            ) : null}
-          </div>
-        )}
+            </>
+          )}
+        </div>
 
         {!isResolutionOverlayOpen && showdown ? (
           <ResultDetails
@@ -618,10 +997,6 @@ export function TableView({
         ) : null}
       </article>
 
-      <aside className="panel table-side-panel chat-side-panel">
-        {renderChatRailContent()}
-      </aside>
-
       <button
         type="button"
         className={`table-drawer-backdrop ${isTablePanelOpen || isChatPanelOpen ? 'is-open' : ''}`}
@@ -640,8 +1015,8 @@ export function TableView({
       >
         <div className="table-drawer-header">
           <div>
-            <p className="eyebrow">Table</p>
-            <h2>Round order</h2>
+            <p className="eyebrow">Players</p>
+            <h2>Table order</h2>
           </div>
 
           <button

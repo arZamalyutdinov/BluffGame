@@ -15,7 +15,8 @@ Use this skill as the repo entry point for BluffGame work. Keep the server autho
 2. Read [`docs/game-rules.md`](../../../docs/game-rules.md) for round flow, claim ordering, and showdown resolution.
 3. Read [`docs/todo.md`](../../../docs/todo.md) for current delivery order.
 4. Read [`docs/decisions.md`](../../../docs/decisions.md) when the task depends on assumptions, open questions, or out-of-scope boundaries.
-5. Read [references/session-checklist.md](references/session-checklist.md) when you want a concise execution checklist.
+5. Read [`docs/visual-refresh-plan.md`](../../../docs/visual-refresh-plan.md) when the task is about table presentation, motion, icons, or overall frontend art direction.
+6. Read [references/session-checklist.md](references/session-checklist.md) when you want a concise execution checklist.
 
 ## Working Rules
 
@@ -30,6 +31,7 @@ Use this skill as the repo entry point for BluffGame work. Keep the server autho
 - Gameplay or balancing work: start with [`docs/game-rules.md`](../../../docs/game-rules.md).
 - Backend, room, or protocol work: start with [`docs/architecture.md`](../../../docs/architecture.md).
 - UI flow or state-sync work: read [`docs/architecture.md`](../../../docs/architecture.md), then verify the relevant rules in [`docs/game-rules.md`](../../../docs/game-rules.md).
+- Visual or presentation refresh work: read [`docs/architecture.md`](../../../docs/architecture.md) and [`docs/visual-refresh-plan.md`](../../../docs/visual-refresh-plan.md), then verify any UI-state constraints against [`docs/game-rules.md`](../../../docs/game-rules.md).
 - Prioritization or scoping work: read [`docs/todo.md`](../../../docs/todo.md) and [`docs/decisions.md`](../../../docs/decisions.md).
 
 ## Expected Repo Shape

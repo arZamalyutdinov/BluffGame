@@ -26,6 +26,8 @@ import {
   sortCardsDescending,
 } from '@bluff-game/shared';
 
+import { PlayerAvatar } from './PlayerAvatar.js';
+
 type ResolutionResult =
   | {
       kind: 'showdown';
@@ -723,7 +725,7 @@ export function RoundResolutionOverlay({
         aria-labelledby="round-resolution-title"
       >
         <header className="resolution-overlay-header">
-          <div>
+          <div className="resolution-heading-card">
             <p className="eyebrow">{heading.eyebrow}</p>
             <h2 id="round-resolution-title">{heading.title}</h2>
             <p className="lead">{heading.text}</p>
@@ -752,7 +754,21 @@ export function RoundResolutionOverlay({
                   style={playerStyle}
                 >
                   <div className="resolution-player-header">
-                    <strong>{player?.name ?? 'Unknown'}</strong>
+                    <div className="resolution-player-identity">
+                      <PlayerAvatar
+                        name={player?.name ?? 'Unknown'}
+                        seatIndex={player?.seatIndex ?? index}
+                        size="sm"
+                      />
+
+                      <div className="resolution-player-copy">
+                        <strong>{player?.name ?? 'Unknown'}</strong>
+                        <span className="resolution-player-meta">
+                          Seat {(player?.seatIndex ?? index) + 1}
+                        </span>
+                      </div>
+                    </div>
+
                     {playerRole ? (
                       <span className="resolution-role-pill">{playerRole}</span>
                     ) : null}
@@ -936,7 +952,9 @@ export function RoundResolutionOverlay({
         </div>
 
         <footer className="resolution-overlay-footer">
-          <p className="lead">{footerText}</p>
+          <div className="resolution-footer-card">
+            <p className="lead">{footerText}</p>
+          </div>
         </footer>
       </dialog>
     </div>
