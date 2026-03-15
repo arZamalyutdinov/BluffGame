@@ -1691,6 +1691,14 @@ h2 {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+  justify-content: space-between;
+}
+
+.claim-step-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .claim-step-back {
@@ -1705,12 +1713,19 @@ h2 {
 .claim-step-copy {
   display: grid;
   gap: 0.18rem;
+  min-width: 0;
 }
 
 .claim-step-title {
   margin: 0;
   font-size: 1.05rem;
   line-height: 1.2;
+}
+
+.claim-step-submit {
+  min-height: 2.65rem;
+  padding-inline: 1rem;
+  flex-shrink: 0;
 }
 
 .claim-choice-grid {
@@ -3747,7 +3762,7 @@ h2 {
   z-index: 8;
   display: grid;
   gap: 0.7rem;
-  max-height: min(18rem, 44dvh);
+  max-height: min(22rem, 56dvh);
   padding: 0.75rem 0.8rem;
   border: 2px solid rgba(178, 208, 255, 0.24);
   border-radius: 26px;
@@ -3794,7 +3809,8 @@ h2 {
 
 .claim-tray-shell .claim-builder-body {
   min-height: 0;
-  overflow: hidden;
+  overflow: auto;
+  padding-right: 0.1rem;
 }
 
 .claim-tray-shell .composer-eyebrow {
@@ -3837,6 +3853,11 @@ h2 {
   max-height: min(10.8rem, 24dvh);
   overflow: auto;
   padding-right: 0.15rem;
+}
+
+.claim-tray-shell .claim-step-submit {
+  min-height: 2.3rem;
+  padding-inline: 0.9rem;
 }
 
 .claim-tray-shell .claim-category-button.is-active,
@@ -3904,6 +3925,10 @@ h2 {
 .claim-tray-shell .claim-builder-footer {
   gap: 0.55rem;
   align-items: center;
+}
+
+.claim-tray-shell .claim-step-header {
+  gap: 0.6rem;
 }
 
 .claim-tray-shell .claim-minimum-note {
@@ -4255,6 +4280,20 @@ h2 {
   .claim-tray-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .claim-step-header,
+  .claim-step-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .claim-step-back {
+    width: 100%;
+  }
+
+  .claim-step-submit {
+    width: 100%;
   }
 
   .claim-tray-shell .claim-category-toolbar,

@@ -273,21 +273,33 @@ export function ClaimComposer({
       ) : (
         <>
           <div className="claim-step-header">
-            <button
-              type="button"
-              className="ghost-button claim-step-back"
-              onClick={handleBackToCategories}
-              aria-label="Back to combination types"
-            >
-              <ArrowLeftIcon className="button-icon" />
-            </button>
+            <div className="claim-step-main">
+              <button
+                type="button"
+                className="ghost-button claim-step-back"
+                onClick={handleBackToCategories}
+                aria-label="Back to combination types"
+              >
+                <ArrowLeftIcon className="button-icon" />
+              </button>
 
-            <div className="claim-step-copy">
-              <p className="claim-panel-label">Combination type</p>
-              <h3 className="claim-step-title">
-                {selectedCategory ? CATEGORY_LABELS[selectedCategory] : 'Claim'}
-              </h3>
+              <div className="claim-step-copy">
+                <p className="claim-panel-label">Combination type</p>
+                <h3 className="claim-step-title">
+                  {selectedCategory
+                    ? CATEGORY_LABELS[selectedCategory]
+                    : 'Claim'}
+                </h3>
+              </div>
             </div>
+
+            <button
+              type="submit"
+              className="primary-button claim-step-submit"
+              disabled={disabled || !selectedClaimKey}
+            >
+              Submit claim
+            </button>
           </div>
 
           <div className="claim-builder-body">
