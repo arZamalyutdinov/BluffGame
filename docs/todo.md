@@ -42,7 +42,6 @@
 ## Later, Not Now
 
 - [ ] Spectator support
-- [ ] Turn timers
 - [ ] Rematch shortcuts
 - [ ] Bots
 - [ ] Persistent profiles and statistics

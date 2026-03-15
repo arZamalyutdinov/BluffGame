@@ -13,8 +13,18 @@ Initial planning baseline recorded on March 14, 2026.
 - Cap v1 rooms at `2` to `8` players.
 - Skip database work, authentication, and social systems for the initial build.
 - Resolve showdowns by checking whether the exact spoken claim can be formed from the revealed shared pool.
+- Keep room settings host-controlled and lobby-only in v1.
+- Ship with configurable elimination hand size in the safe range `2` to `6`.
+- Ship with configurable turn time limits, with `60` seconds as the default.
+- Ship with three claim-order presets, with `flush below straight` as the default.
+- Treat plain flush claims as suit-only claims; they do not carry a high-card value.
+- Fold royal flush into ace-high straight flush instead of keeping it as a separate claim type.
+- Speak straight and straight-flush claims by their low card, not their high card.
 - Use `diamonds < clubs < hearts < spades` as the suit priority order for suit-based claims.
+- Let the host pause and resume the live turn timer during an active match.
 - Ship the first playable slice with session-token reconnect support.
+- Support host-added room bots that play from fair public-information limits
+  instead of reading hidden hands.
 - Returning from a finished match sends the room back to the lobby while keeping the same room code.
 
 ## Working Assumptions
@@ -29,7 +39,6 @@ Initial planning baseline recorded on March 14, 2026.
 ## Deferred Decisions
 
 - Whether the host can remove disconnected or idle players.
-- Whether to add turn timers once the base loop feels good.
 - Whether to expose claim suggestions in the UI or keep players fully manual.
 
 ## Explicitly Out of Scope for Now
@@ -39,6 +48,4 @@ Initial planning baseline recorded on March 14, 2026.
 - Server-side storage
 - Match history
 - Ranked matchmaking
-- AI opponents
 - Spectators
-- In-game chat

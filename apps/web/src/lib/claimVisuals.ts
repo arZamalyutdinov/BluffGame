@@ -13,22 +13,18 @@ function asRank(value: number): Rank {
   return value as Rank;
 }
 
-function straightRanks(highRank: number): Rank[] {
-  if (highRank === 5) {
+function straightRanks(lowRank: number): Rank[] {
+  if (lowRank === 1) {
     return [14, 2, 3, 4, 5];
   }
 
   return [
-    asRank(highRank - 4),
-    asRank(highRank - 3),
-    asRank(highRank - 2),
-    asRank(highRank - 1),
-    asRank(highRank),
+    asRank(lowRank),
+    asRank(lowRank + 1),
+    asRank(lowRank + 2),
+    asRank(lowRank + 3),
+    asRank(lowRank + 4),
   ];
-}
-
-function descendingRanks(highRank: number, count: number): Rank[] {
-  return Array.from({ length: count }, (_, index) => asRank(highRank - index));
 }
 
 export function claimToIllustrationCards(claim: Claim): Card[] {
@@ -54,14 +50,14 @@ export function claimToIllustrationCards(claim: Claim): Card[] {
         { rank: claim.tripRank, suit: 'clubs' },
       ];
     case 'straight':
-      return straightRanks(claim.highRank).map((rank, index) => ({
+      return straightRanks(claim.lowRank).map((rank, index) => ({
         rank,
         suit: STRAIGHT_PREVIEW_SUITS[index] ?? 'spades',
       }));
     case 'flush':
-      return descendingRanks(claim.highRank, 5).map((rank) => ({
-        rank,
-        suit: 'hearts',
+      return [14, 13, 12, 11, 9].map((rank) => ({
+        rank: asRank(rank),
+        suit: claim.suit,
       }));
     case 'full-house':
       return [
@@ -77,14 +73,9 @@ export function claimToIllustrationCards(claim: Claim): Card[] {
         suit,
       }));
     case 'straight-flush':
-      return straightRanks(claim.highRank).map((rank) => ({
+      return straightRanks(claim.lowRank).map((rank) => ({
         rank,
-        suit: 'spades',
-      }));
-    case 'royal-flush':
-      return [10, 11, 12, 13, 14].map((rank) => ({
-        rank: asRank(rank),
-        suit: 'spades',
+        suit: claim.suit,
       }));
   }
 }

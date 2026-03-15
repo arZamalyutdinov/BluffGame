@@ -5,61 +5,129 @@
 - Use one standard 52-card deck with no jokers.
 - Support `2` to `8` players in v1.
 - Seat players in a fixed clockwise order when they join the room.
+- While the room is in the lobby, the host may add bots to fill open seats.
+- Bots use the same information limits as human players: their own hand, public
+  room state, and the unseen remainder of the deck.
 - Each player starts the match with a `handSize` of `1`.
+
+## Room Settings
+
+Every room carries three host-controlled settings that can only change in the
+lobby:
+
+- `eliminationHandSize`: the hand size at which a player is eliminated if they
+  lose another showdown. Supported range: `2` to `6`. Default: `5`.
+- `claimOrderPreset`: the category ordering used for legal raises and UI claim
+  ordering. Default: `flush below straight`.
+- `turnTimeLimitSeconds`: the maximum time allowed for the active player to act.
+  Supported range: `15` to `120`. Default: `60`.
+
+Changing any setting resets all human lobby ready states. Bots stay ready
+automatically.
 
 ## Match Objective
 
-Stay in the game longer than everyone else. The last non-eliminated player wins the match.
+Stay in the game longer than everyone else. The last non-eliminated player wins
+the match.
 
 ## Round Setup
 
 1. Shuffle the deck at the start of every round.
-2. Deal each active, non-eliminated player a number of private cards equal to their current `handSize`.
+2. Deal each active, non-eliminated player a number of private cards equal to
+   their current `handSize`.
 3. Pick the round starter:
    - Round 1 starter is random.
-   - Each later round starts with the next active player clockwise after the previous round's starter.
+   - Each later round starts with the next active player clockwise after the
+     previous round's starter.
 4. The round starter must make the opening claim.
 
 ## Core Idea
 
-Claims are made about the combined hidden card pool of all active players in the current round, not about a single player's private hand.
+Claims are made about the combined hidden card pool of all active players in
+the current round, not about a single player's private hand.
 
 ## Turn Flow
 
 1. The current player states a legal claim.
 2. The next active player clockwise chooses one action:
    - Raise the claim by stating a strictly higher legal claim.
-   - Challenge the current claim by accusing the previous claimant of bluffing.
-3. If the next player raises, play continues clockwise.
-4. If the next player challenges, the round ends in a showdown immediately.
+   - Check the claim by accusing the previous claimant of bluffing.
+3. The active player must act before the room's turn timer reaches zero.
+4. The host may pause or resume the live turn timer during an active match.
+5. While the game is paused, no player actions are accepted.
+6. If the round is in its result-display sequence, no player actions or bot
+   actions are accepted and no turn timer is running.
+7. If the next player raises, play continues clockwise.
+8. If the next player checks, the round ends in a showdown immediately.
+
+## Timeout Resolution
+
+1. If the active player's timer reaches zero before they act, that player loses
+   the round automatically.
+2. All active players reveal all of their cards for the round.
+3. No claim-validity check is performed for a timeout loss.
+4. Apply the same hand-size penalty or elimination rule as any other round loss.
+5. Show a non-dismissible result sequence for the revealed hands.
+6. After the reveal animation finishes, keep that result sequence visible for
+   an additional `5` seconds.
+7. Only after that full result-display window ends does the next round start
+   and its turn timer begin.
 
 ## Showdown Resolution
 
 1. All active players reveal all of their cards for the current round.
 2. Combine every revealed card into a single shared card pool.
-3. Determine whether the exact final spoken claim can be formed from the shared card pool.
-4. Resolve the challenge:
-   - If the exact spoken claim exists, the claim was valid and the challenger loses.
-   - If the exact spoken claim does not exist, the claim was invalid and the claimant loses.
-5. The round ends immediately after the showdown.
+3. Determine whether the exact final spoken claim can be formed from the shared
+   card pool.
+4. Resolve the check:
+   - If the exact spoken claim exists, the claim was valid and the checker
+     loses.
+   - If the exact spoken claim does not exist, the claim was invalid and the
+     claimant loses.
+5. Show a non-dismissible result sequence for the revealed hands and claim
+   construction.
+6. After the reveal animation finishes, keep that result sequence visible for
+   an additional `5` seconds.
+7. Only after that full result-display window ends does the next round start
+   and its turn timer begin.
 
 ## Penalties and Elimination
 
-- A player who loses a showdown increases their `handSize` by `1` for future rounds.
-- If that player already had `5` cards, they are eliminated instead of moving to `6`.
+- A player who loses a showdown or times out increases their `handSize` by `1`
+  for future rounds.
+- If that player already had `eliminationHandSize` cards, they are eliminated
+  instead of moving higher.
 - Non-losing players keep the same `handSize`.
 - Eliminated players do not participate in later rounds.
-- If only one player remains active after a showdown, that player wins the match.
+- If only one player remains active after a showdown, that player wins the
+  match.
 
 ## Round Reset
 
-- Discard all revealed cards after each showdown.
-- Start the next round with a freshly shuffled deck.
+- Discard all revealed cards after each showdown or timeout result-display
+  sequence finishes.
+- Start the next round with a freshly shuffled deck only after the server-owned
+  result-display window ends.
 - Keep the same seat order for the whole match.
 
-## Legal Claim Order
+## Claim Order Presets
 
-Claims must always become strictly stronger using the following total order:
+Claims must always become strictly stronger according to the room's selected
+preset.
+
+### Default: Flush Below Straight
+
+1. High card
+2. Pair
+3. Two pair
+4. Three of a kind
+5. Flush
+6. Straight
+7. Full house
+8. Four of a kind
+9. Straight flush
+
+### Standard Poker
 
 1. High card
 2. Pair
@@ -70,11 +138,23 @@ Claims must always become strictly stronger using the following total order:
 7. Full house
 8. Four of a kind
 9. Straight flush
-10. Royal flush
 
-## Claim Comparison Inside a Category
+### Flush Below Trips And Straight
 
-When two claims share the same category, compare them by the category-specific tuple below from left to right:
+1. High card
+2. Pair
+3. Two pair
+4. Flush
+5. Three of a kind
+6. Straight
+7. Full house
+8. Four of a kind
+9. Straight flush
+
+## Claim Comparison Inside A Category
+
+When two claims share the same category, compare them by the category-specific
+tuple below from left to right:
 
 | Category | Spoken shape | Comparison tuple |
 | --- | --- | --- |
@@ -82,12 +162,11 @@ When two claims share the same category, compare them by the category-specific t
 | Pair | `pair of queens` | `[pairRank]` |
 | Two pair | `kings and tens` | `[highPairRank, lowPairRank]` |
 | Three of a kind | `three sevens` | `[tripRank]` |
-| Straight | `jack-high straight` | `[highestCardInStraight]` |
-| Flush | `ace-high hearts flush` | `[highestCardInFlush, flushSuitPriority]` |
+| Straight | `three-low straight` | `[lowestCardInStraight]` |
+| Flush | `hearts flush` | `[flushSuitPriority]` |
 | Full house | `nines full of fours` | `[tripRank, pairRank]` |
 | Four of a kind | `four fives` | `[quadRank]` |
-| Straight flush | `queen-high clubs straight flush` | `[highestCardInStraightFlush, straightFlushSuitPriority]` |
-| Royal flush | `spades royal flush` | `[royalFlushSuitPriority]` |
+| Straight flush | `nine-low clubs straight flush` | `[lowestCardInStraightFlush, straightFlushSuitPriority]` |
 
 ## Rank Rules
 
@@ -98,31 +177,44 @@ When two claims share the same category, compare them by the category-specific t
 ## Suit Rules
 
 - Suit order is `diamonds < clubs < hearts < spades`.
-- Suits matter for flush, straight flush, and royal flush claims.
-- When two same-category suit-based claims have the same rank tuple, compare them by suit priority.
+- Suits matter for flush and straight flush claims.
+- When two same-category suit-based claims have the same rank tuple, compare
+  them by suit priority.
 - The exact spoken suit must exist for the claim to be valid at showdown.
-- Some examples below omit the high-card detail when only suit priority is being illustrated.
 
-## Practical Meaning of a Claim
+## Practical Meaning Of A Claim
 
-A claim is valid only when the exact spoken combination can be formed from the shared pool. A stronger or different combination does not automatically satisfy the claim unless the spoken combination also exists as a subset of the revealed cards.
+A claim is valid only when the exact spoken combination can be formed from the
+shared pool. A stronger or different combination does not automatically satisfy
+the claim unless the spoken combination also exists as a subset of the revealed
+cards.
 
 Examples:
 
-- If the spoken claim is `2`-to-`6` straight, then a `3`-to-`7` straight does not save the claimant.
-- If the spoken claim is `pair of queens`, then three or four queens still make the claim valid because a pair of queens can be formed from those cards.
-- If the spoken claim is `high card ace`, then the claim is valid only if at least one ace is present in the shared pool.
-- If the spoken claim is `diamonds flush`, then a hearts-only flush does not save the claimant because the exact spoken suit is missing.
+- If the spoken claim is `2`-to-`6` straight, then a `3`-to-`7` straight does
+  not save the claimant.
+- If the spoken claim is `pair of queens`, then three or four queens still make
+  the claim valid because a pair of queens can be formed from those cards.
+- If the spoken claim is `high card ace`, then the claim is valid only if at
+  least one ace is present in the shared pool.
+- If the spoken claim is `hearts flush`, then a clubs-only flush does not save
+  the claimant because the exact spoken suit is missing.
 
 ## Suit-Raise Examples
 
-- If the previous claim is `diamonds flush`, the next player may raise to `clubs flush`, `hearts flush`, or `spades flush`.
-- If the previous claim is `queen-high clubs straight flush`, the next player may raise to `queen-high hearts straight flush` because hearts outrank clubs.
-- If the previous claim is `hearts royal flush`, only `spades royal flush` is a higher royal flush claim.
+- If the previous claim is `diamonds flush`, the next player may raise to
+  `clubs flush`, `hearts flush`, or `spades flush`.
+- If the previous claim is `nine-low clubs straight flush`, the next player may
+  raise to `nine-low hearts straight flush` because hearts outrank clubs.
+- If the previous claim is `ten-low hearts straight flush`, only
+  `ten-low spades straight flush` is a higher same-rank straight flush claim.
 
-## Additional Rulings for V1
+## Additional Rulings For V1
 
 - No player may repeat the same claim or make a lower claim.
-- Players may bluff by stating claims the shared hidden pool does not actually support.
-- There are no turn timers in the initial version.
-- There is no partial reveal mechanic; showdown always reveals every active player's full round hand.
+- Players may bluff by stating claims the shared hidden pool does not actually
+  support.
+- There is no partial reveal mechanic; showdown always reveals every active
+  player's full round hand.
+- Clients may not dismiss the round-result screen early; the server controls
+  when live play resumes.

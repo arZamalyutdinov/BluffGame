@@ -4,6 +4,7 @@ import {
   Link,
   Route,
   Routes,
+  useLocation,
   useNavigate,
   useParams,
 } from 'react-router-dom';
@@ -33,6 +34,9 @@ interface RoomConnectionState {
 }
 
 function AppShell() {
+  const location = useLocation();
+  const isRoomRoute = location.pathname.startsWith('/rooms/');
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -41,7 +45,9 @@ function AppShell() {
         </Link>
       </header>
 
-      <main className="page-shell">
+      <main
+        className={isRoomRoute ? 'page-shell page-shell-room' : 'page-shell'}
+      >
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/rooms/:roomCode" element={<RoomPage />} />
@@ -176,6 +182,7 @@ function RoomPage() {
     pendingCommand: null,
     errorMessage: null,
   });
+  const [isTablePanelOpen, setIsTablePanelOpen] = useState(false);
 
   useEffect(() => {
     if (!session) {
@@ -244,6 +251,12 @@ function RoomPage() {
     };
   }, [session]);
 
+  useEffect(() => {
+    if (state.snapshot?.phase === 'lobby') {
+      setIsTablePanelOpen(false);
+    }
+  }, [state.snapshot?.phase]);
+
   if (!session) {
     return (
       <section className="panel">
@@ -296,8 +309,13 @@ function RoomPage() {
         <LobbyView
           snapshot={state.snapshot}
           isConnected={state.isConnected}
+          pendingCommand={state.pendingCommand}
           onSetReady={(ready) => sendCommand('setReady', { ready })}
+          onAddBot={() => sendCommand('addBot', {})}
           onStartMatch={() => sendCommand('startMatch')}
+          onUpdateSettings={(settings) =>
+            sendCommand('updateRoomSettings', settings)
+          }
           onLeaveRoom={() => {
             removeRoomSession(roomCode);
             sendCommand('leaveRoom');
@@ -309,9 +327,15 @@ function RoomPage() {
           snapshot={state.snapshot}
           isConnected={state.isConnected}
           pendingCommand={state.pendingCommand}
+          isTablePanelOpen={isTablePanelOpen}
           onSubmitClaim={(claimKey) => sendCommand('submitClaim', { claimKey })}
           onChallengeClaim={() => sendCommand('challengeClaim')}
+          onSetPauseState={(paused) =>
+            sendCommand('setMatchPaused', { paused })
+          }
+          onSendChatMessage={(text) => sendCommand('sendChatMessage', { text })}
           onRestartMatch={() => sendCommand('restartMatch')}
+          onSetTablePanelOpen={setIsTablePanelOpen}
         />
       )}
     </>

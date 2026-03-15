@@ -1,9 +1,10 @@
-import type { Card, Rank, Suit } from '../cards/index.js';
-import type {
-  Claim,
-  StraightClaim,
-  StraightFlushClaim,
-} from '../claims/index.js';
+import {
+  type Card,
+  type Rank,
+  type Suit,
+  sortCardsDescending,
+} from '../cards/index.js';
+import type { Claim, StraightClaim } from '../claims/index.js';
 
 export interface PenaltyPlayerState {
   playerId: string;
@@ -18,6 +19,7 @@ export interface ShowdownInput {
   challengerPlayerId: string;
   handsByPlayerId: Record<string, Card[]>;
   players: PenaltyPlayerState[];
+  eliminationHandSize: number;
 }
 
 export interface ShowdownResolution {
@@ -28,101 +30,196 @@ export interface ShowdownResolution {
   updatedPlayers: PenaltyPlayerState[];
 }
 
-const ROYAL_RANKS: Rank[] = [10, 11, 12, 13, 14];
-
-function buildRankCounts(cards: Card[]): Map<Rank, number> {
-  const counts = new Map<Rank, number>();
-
-  for (const card of cards) {
-    counts.set(card.rank, (counts.get(card.rank) ?? 0) + 1);
-  }
-
-  return counts;
+export interface RoundLossInput {
+  loserPlayerId: string;
+  players: PenaltyPlayerState[];
+  eliminationHandSize: number;
 }
 
-function buildSuitGroups(cards: Card[]): Map<Suit, Card[]> {
-  const groups = new Map<Suit, Card[]>();
-
-  for (const card of cards) {
-    const next = groups.get(card.suit) ?? [];
-    next.push(card);
-    groups.set(card.suit, next);
-  }
-
-  return groups;
+export interface RoundLossResolution {
+  loserPlayerId: string;
+  loserHandSize: number;
+  loserEliminated: boolean;
+  updatedPlayers: PenaltyPlayerState[];
 }
 
-function getStraightRanks(highRank: StraightClaim['highRank']): Rank[] {
-  if (highRank === 5) {
+export interface ClaimConstruction {
+  cards: Card[];
+  slotCards: Array<Card | undefined>;
+  requiredCount: number;
+  isComplete: boolean;
+}
+
+function getStraightRanks(lowRank: StraightClaim['lowRank']): Rank[] {
+  if (lowRank === 1) {
     return [14, 2, 3, 4, 5];
   }
 
   return [
-    (highRank - 4) as Rank,
-    (highRank - 3) as Rank,
-    (highRank - 2) as Rank,
-    (highRank - 1) as Rank,
-    highRank,
+    lowRank as Rank,
+    (lowRank + 1) as Rank,
+    (lowRank + 2) as Rank,
+    (lowRank + 3) as Rank,
+    (lowRank + 4) as Rank,
   ];
 }
 
-function hasRanks(cards: Card[], requiredRanks: Rank[]): boolean {
-  const rankSet = new Set(cards.map((card) => card.rank));
-  return requiredRanks.every((rank) => rankSet.has(rank));
+function takeCardsOfRank(cards: Card[], rank: Rank, count: number): Card[] {
+  return sortCardsDescending(cards.filter((card) => card.rank === rank)).slice(
+    0,
+    count,
+  );
 }
 
-function hasStraight(
+function toSlotCards(
   cards: Card[],
-  claim: StraightClaim | StraightFlushClaim,
-): boolean {
-  return hasRanks(cards, getStraightRanks(claim.highRank));
+  requiredCount: number,
+): Array<Card | undefined> {
+  return Array.from({ length: requiredCount }, (_, index) => cards[index]);
+}
+
+function takeCardsOfSuit(cards: Card[], suit: Suit, count: number): Card[] {
+  return sortCardsDescending(cards.filter((card) => card.suit === suit)).slice(
+    0,
+    count,
+  );
+}
+
+function takeStraightSlotCards(
+  cards: Card[],
+  lowRank: StraightClaim['lowRank'],
+): Array<Card | undefined> {
+  const sortedCards = sortCardsDescending(cards);
+
+  return getStraightRanks(lowRank).map((rank) =>
+    sortedCards.find((card) => card.rank === rank),
+  );
+}
+
+export function buildClaimConstruction(
+  cards: Card[],
+  claim: Claim,
+): ClaimConstruction {
+  switch (claim.category) {
+    case 'high-card': {
+      const selectedCards = takeCardsOfRank(cards, claim.rank, 1);
+      const slotCards = toSlotCards(selectedCards, 1);
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 1,
+        isComplete: selectedCards.length === 1,
+      };
+    }
+    case 'pair': {
+      const selectedCards = takeCardsOfRank(cards, claim.pairRank, 2);
+      const slotCards = toSlotCards(selectedCards, 2);
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 2,
+        isComplete: selectedCards.length === 2,
+      };
+    }
+    case 'two-pair': {
+      const highPairCards = takeCardsOfRank(cards, claim.highPairRank, 2);
+      const lowPairCards = takeCardsOfRank(cards, claim.lowPairRank, 2);
+      const slotCards = [
+        ...toSlotCards(highPairCards, 2),
+        ...toSlotCards(lowPairCards, 2),
+      ];
+      const selectedCards = [...highPairCards, ...lowPairCards];
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 4,
+        isComplete: highPairCards.length === 2 && lowPairCards.length === 2,
+      };
+    }
+    case 'three-of-a-kind': {
+      const selectedCards = takeCardsOfRank(cards, claim.tripRank, 3);
+      const slotCards = toSlotCards(selectedCards, 3);
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 3,
+        isComplete: selectedCards.length === 3,
+      };
+    }
+    case 'straight': {
+      const slotCards = takeStraightSlotCards(cards, claim.lowRank);
+      const selectedCards = slotCards.filter((card): card is Card =>
+        Boolean(card),
+      );
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 5,
+        isComplete: selectedCards.length === 5,
+      };
+    }
+    case 'flush': {
+      const selectedCards = takeCardsOfSuit(cards, claim.suit, 5);
+      const slotCards = toSlotCards(selectedCards, 5);
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 5,
+        isComplete: selectedCards.length === 5,
+      };
+    }
+    case 'full-house': {
+      const tripCards = takeCardsOfRank(cards, claim.tripRank, 3);
+      const pairCards = takeCardsOfRank(cards, claim.pairRank, 2);
+      const slotCards = [
+        ...toSlotCards(tripCards, 3),
+        ...toSlotCards(pairCards, 2),
+      ];
+      const selectedCards = [...tripCards, ...pairCards];
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 5,
+        isComplete: tripCards.length === 3 && pairCards.length === 2,
+      };
+    }
+    case 'four-of-a-kind': {
+      const selectedCards = takeCardsOfRank(cards, claim.quadRank, 4);
+      const slotCards = toSlotCards(selectedCards, 4);
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 4,
+        isComplete: selectedCards.length === 4,
+      };
+    }
+    case 'straight-flush': {
+      const suitedCards = cards.filter((card) => card.suit === claim.suit);
+      const slotCards = takeStraightSlotCards(suitedCards, claim.lowRank);
+      const selectedCards = slotCards.filter((card): card is Card =>
+        Boolean(card),
+      );
+
+      return {
+        cards: selectedCards,
+        slotCards,
+        requiredCount: 5,
+        isComplete: selectedCards.length === 5,
+      };
+    }
+  }
 }
 
 export function claimExists(cards: Card[], claim: Claim): boolean {
-  const rankCounts = buildRankCounts(cards);
-  const suitGroups = buildSuitGroups(cards);
-
-  switch (claim.category) {
-    case 'high-card':
-      return cards.some((card) => card.rank === claim.rank);
-    case 'pair':
-      return (rankCounts.get(claim.pairRank) ?? 0) >= 2;
-    case 'two-pair':
-      return (
-        (rankCounts.get(claim.highPairRank) ?? 0) >= 2 &&
-        (rankCounts.get(claim.lowPairRank) ?? 0) >= 2
-      );
-    case 'three-of-a-kind':
-      return (rankCounts.get(claim.tripRank) ?? 0) >= 3;
-    case 'straight':
-      return hasStraight(cards, claim);
-    case 'flush':
-      return [...suitGroups.values()].some((group) => {
-        const eligibleCount = group.filter(
-          (card) => card.rank <= claim.highRank,
-        ).length;
-        return (
-          eligibleCount >= 5 &&
-          group.some((card) => card.rank === claim.highRank)
-        );
-      });
-    case 'full-house':
-      return (
-        claim.tripRank !== claim.pairRank &&
-        (rankCounts.get(claim.tripRank) ?? 0) >= 3 &&
-        (rankCounts.get(claim.pairRank) ?? 0) >= 2
-      );
-    case 'four-of-a-kind':
-      return (rankCounts.get(claim.quadRank) ?? 0) >= 4;
-    case 'straight-flush':
-      return [...suitGroups.values()].some((group) =>
-        hasStraight(group, claim),
-      );
-    case 'royal-flush':
-      return [...suitGroups.values()].some((group) =>
-        hasRanks(group, ROYAL_RANKS),
-      );
-  }
+  return buildClaimConstruction(cards, claim).isComplete;
 }
 
 export function resolveShowdown(input: ShowdownInput): ShowdownResolution {
@@ -132,12 +229,28 @@ export function resolveShowdown(input: ShowdownInput): ShowdownResolution {
     ? input.challengerPlayerId
     : input.claimantPlayerId;
 
+  const penalty = applyRoundLoss({
+    loserPlayerId,
+    players: input.players,
+    eliminationHandSize: input.eliminationHandSize,
+  });
+
+  return {
+    claimWasValid,
+    loserPlayerId,
+    loserHandSize: penalty.loserHandSize,
+    loserEliminated: penalty.loserEliminated,
+    updatedPlayers: penalty.updatedPlayers,
+  };
+}
+
+export function applyRoundLoss(input: RoundLossInput): RoundLossResolution {
   const updatedPlayers = input.players.map((player) => {
-    if (player.playerId !== loserPlayerId) {
+    if (player.playerId !== input.loserPlayerId) {
       return player;
     }
 
-    if (player.handSize >= 5) {
+    if (player.handSize >= input.eliminationHandSize) {
       return {
         ...player,
         isEliminated: true,
@@ -151,16 +264,17 @@ export function resolveShowdown(input: ShowdownInput): ShowdownResolution {
   });
 
   const loser = updatedPlayers.find(
-    (player) => player.playerId === loserPlayerId,
+    (player) => player.playerId === input.loserPlayerId,
   );
 
   if (!loser) {
-    throw new Error(`Loser ${loserPlayerId} was not found in player state.`);
+    throw new Error(
+      `Loser ${input.loserPlayerId} was not found in player state.`,
+    );
   }
 
   return {
-    claimWasValid,
-    loserPlayerId,
+    loserPlayerId: input.loserPlayerId,
     loserHandSize: loser.handSize,
     loserEliminated: loser.isEliminated,
     updatedPlayers,
