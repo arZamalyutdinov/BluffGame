@@ -36,6 +36,14 @@ export function ClaimCardStack({
                 {SUIT_SYMBOLS[card.suit]}
               </span>
             </div>
+            <div className="claim-visual-center">
+              <span className="claim-visual-center-suit">
+                {SUIT_SYMBOLS[card.suit]}
+              </span>
+              <span className="claim-visual-center-rank">
+                {RANK_LABELS[card.rank]}
+              </span>
+            </div>
             <div className="claim-visual-corners claim-visual-corners-bottom">
               <span className="claim-visual-rank">
                 {RANK_LABELS[card.rank]}
