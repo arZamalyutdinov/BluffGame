@@ -331,14 +331,6 @@ export function ClaimComposer({
         ) : (
           <div className="claim-minimum-note">No raise options remain.</div>
         )}
-
-        <button
-          type="submit"
-          className="primary-button claim-footer-submit"
-          disabled={disabled || !selectedClaimKey}
-        >
-          Submit claim
-        </button>
       </div>
     </form>
   );

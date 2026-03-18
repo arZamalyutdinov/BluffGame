@@ -1,6 +1,5 @@
 import {
   type CSSProperties,
-  type ReactNode,
   useEffect,
   useMemo,
   useRef,
@@ -11,7 +10,6 @@ import {
   type Claim,
   type PlayerSnapshot,
   type RoomSnapshot,
-  cardToShortLabel,
   claimToCompactLabel,
   claimToKey,
   claimToLabel,
@@ -23,19 +21,29 @@ import {
   getPlayerInitials,
   getSeatToneClass,
 } from '../lib/playerPresentation.js';
+import {
+  type TableSeatSlot,
+  getDesktopOpponentSeatSlots,
+} from '../lib/tableLayout.js';
 import { ClaimComposer } from './ClaimComposer.js';
 import { ClaimCardStack } from './ClaimPreview.js';
 import {
   BotIcon,
   CardsIcon,
+  ChatIcon,
   CrownIcon,
   ReadyIcon,
+  SeatsIcon,
   SignalIcon,
   TimerIcon,
 } from './Icons.js';
 import { PlayerAvatar } from './PlayerAvatar.js';
 import { RoomChat } from './RoomChat.js';
-import { RoundResolutionOverlay } from './RoundResolutionOverlay.js';
+import {
+  type ResolutionSeatPosition,
+  RoundResolutionOverlay,
+} from './RoundResolutionOverlay.js';
+import '../tableScene.css';
 
 interface TableViewProps {
   snapshot: RoomSnapshot;
@@ -49,6 +57,10 @@ interface TableViewProps {
   onSendChatMessage: (text: string) => void;
   onSetTablePanelOpen: (open: boolean) => void;
 }
+
+type ClaimHistoryEntry = NonNullable<
+  RoomSnapshot['match']
+>['claimHistory'][number];
 
 function formatRemainingMs(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -79,63 +91,56 @@ function rotatePlayersForTable(
   return [...players.slice(anchorIndex), ...players.slice(0, anchorIndex)];
 }
 
-function buildTableSeatStyle(index: number, total: number): CSSProperties {
-  const presetPositions =
-    total === 2
-      ? [
-          { x: 0, y: 1.04 },
-          { x: 0, y: -1.22 },
-        ]
-      : total === 3
-        ? [
-            { x: 0, y: 1.04 },
-            { x: -1.02, y: -0.42 },
-            { x: 1.02, y: -0.42 },
-          ]
-        : total === 4
-          ? [
-              { x: 0, y: 1.04 },
-              { x: -1.08, y: 0.12 },
-              { x: 0, y: -1.16 },
-              { x: 1.08, y: 0.12 },
-            ]
-          : null;
-
-  if (presetPositions?.[index]) {
-    return {
-      '--table-seat-x': `${presetPositions[index].x}`,
-      '--table-seat-y': `${presetPositions[index].y}`,
-    } as CSSProperties;
-  }
-
-  const angleInRadians =
-    ((90 + (360 / Math.max(total, 1)) * index) * Math.PI) / 180;
-  const offsetX = Math.cos(angleInRadians);
-  const offsetY = Math.sin(angleInRadians);
-
+function buildTableSeatStyle(slot: TableSeatSlot): CSSProperties {
   return {
-    '--table-seat-x': `${offsetX}`,
-    '--table-seat-y': `${offsetY}`,
+    '--poker-seat-left': `${slot.leftPct}%`,
+    '--poker-seat-top': `${slot.topPct}%`,
   } as CSSProperties;
 }
 
-interface ResultDetailsProps {
-  title: string;
-  summary: string;
-  children: ReactNode;
+interface SeatAnchorCopy {
+  roleChipLabel?: string;
+  stateChipLabel?: string;
 }
 
-function ResultDetails({ title, summary, children }: ResultDetailsProps) {
-  return (
-    <details className="showdown-panel result-details">
-      <summary className="result-summary">
-        <span className="result-summary-title">{title}</span>
-        <span className="result-summary-text">{summary}</span>
-      </summary>
+function buildSeatAnchorCopy({
+  player,
+  isCurrentTurn,
+  isLowCards,
+  isDisconnected,
+  isSelf,
+  isPaused,
+}: {
+  player: PlayerSnapshot;
+  isCurrentTurn: boolean;
+  isLowCards: boolean;
+  isDisconnected: boolean;
+  isSelf: boolean;
+  isPaused: boolean;
+}): SeatAnchorCopy {
+  const roleChipLabel = isSelf
+    ? 'You'
+    : player.isBot
+      ? 'Bot'
+      : player.isHost
+        ? 'Host'
+        : undefined;
+  const stateChipLabel = player.isEliminated
+    ? 'Out'
+    : isDisconnected
+      ? 'Offline'
+      : isCurrentTurn
+        ? isPaused
+          ? 'Paused'
+          : 'Acting'
+        : isLowCards
+          ? 'Pressure'
+          : undefined;
 
-      <div className="result-details-body">{children}</div>
-    </details>
-  );
+  return {
+    ...(roleChipLabel ? { roleChipLabel } : {}),
+    ...(stateChipLabel ? { stateChipLabel } : {}),
+  };
 }
 
 function buildResolutionKey(match: NonNullable<RoomSnapshot['match']>) {
@@ -178,7 +183,9 @@ export function TableView({
   const match = snapshot.match;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
-  const [isClaimTrayOpen, setIsClaimTrayOpen] = useState(false);
+  const [claimComposerStage, setClaimComposerStage] = useState<
+    'closed' | 'opening' | 'open' | 'closing'
+  >('closed');
   const [selectedComposerClaim, setSelectedComposerClaim] = useState<
     Claim | undefined
   >(undefined);
@@ -190,8 +197,18 @@ export function TableView({
     playerId: string;
     sequenceNumber: number;
   } | null>(null);
+  const [claimTransition, setClaimTransition] = useState<{
+    phase: 'idle' | 'entering' | 'swapping';
+    token: number;
+    outgoingEntry: ClaimHistoryEntry | null;
+  }>({
+    phase: 'idle',
+    token: 0,
+    outgoingEntry: null,
+  });
   const previousTurnPlayerIdRef = useRef<string | null>(null);
   const previousClaimSequenceRef = useRef<number | null>(null);
+  const previousRenderedClaimRef = useRef<ClaimHistoryEntry | null>(null);
   const turnTimer = match?.turnTimer;
 
   useEffect(() => {
@@ -215,7 +232,9 @@ export function TableView({
   }, [turnTimer]);
 
   useEffect(() => {
-    if (!isTablePanelOpen && !isChatPanelOpen) {
+    const isClaimComposerVisible = claimComposerStage !== 'closed';
+
+    if (!isTablePanelOpen && !isChatPanelOpen && !isClaimComposerVisible) {
       return;
     }
 
@@ -223,6 +242,9 @@ export function TableView({
       if (event.key === 'Escape') {
         onSetTablePanelOpen(false);
         setIsChatPanelOpen(false);
+        if (isClaimComposerVisible) {
+          setClaimComposerStage('closing');
+        }
       }
     }
 
@@ -231,7 +253,12 @@ export function TableView({
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [isChatPanelOpen, isTablePanelOpen, onSetTablePanelOpen]);
+  }, [
+    claimComposerStage,
+    isChatPanelOpen,
+    isTablePanelOpen,
+    onSetTablePanelOpen,
+  ]);
 
   useEffect(() => {
     if (
@@ -247,63 +274,114 @@ export function TableView({
     return null;
   }
 
-  const yourHand = match.yourHand;
+  const currentMatch = match;
+  const yourHand = currentMatch.yourHand;
 
-  const resolutionKey = buildResolutionKey(match);
+  const resolutionKey = buildResolutionKey(currentMatch);
   const activeResolution = useMemo(() => {
-    if (match.showdown) {
+    if (currentMatch.showdown) {
       return {
         kind: 'showdown' as const,
         key: resolutionKey ?? 'showdown',
-        data: match.showdown,
+        data: currentMatch.showdown,
       };
     }
 
-    if (match.timeout) {
+    if (currentMatch.timeout) {
       return {
         kind: 'timeout' as const,
         key: resolutionKey ?? 'timeout',
-        data: match.timeout,
+        data: currentMatch.timeout,
       };
     }
 
     return undefined;
-  }, [match.showdown, match.timeout, resolutionKey]);
-  const isShowingResult = match.phase === 'showing-result';
-  const isResolutionOverlayOpen = Boolean(activeResolution) && isShowingResult;
+  }, [currentMatch.showdown, currentMatch.timeout, resolutionKey]);
+  const isShowingResult = currentMatch.phase === 'showing-result';
+  const isResolutionStageOpen = Boolean(activeResolution) && isShowingResult;
 
-  const isMyTurn = match.currentTurnPlayerId === snapshot.selfPlayerId;
+  const isMyTurn = currentMatch.currentTurnPlayerId === snapshot.selfPlayerId;
   const isHost = snapshot.hostPlayerId === snapshot.selfPlayerId;
-  const playersById = new Map(
-    snapshot.players.map((player) => [player.playerId, player]),
+  const playersById = useMemo(
+    () => new Map(snapshot.players.map((player) => [player.playerId, player])),
+    [snapshot.players],
   );
-  const currentPlayer = playersById.get(match.currentTurnPlayerId);
-  const orderedPlayers = sortPlayersBySeat(snapshot);
-  const tablePlayers = rotatePlayersForTable(
-    orderedPlayers,
-    snapshot.selfPlayerId,
+  const currentPlayer = playersById.get(currentMatch.currentTurnPlayerId);
+  const orderedPlayers = useMemo(() => sortPlayersBySeat(snapshot), [snapshot]);
+  const tablePlayers = useMemo(
+    () => rotatePlayersForTable(orderedPlayers, snapshot.selfPlayerId),
+    [orderedPlayers, snapshot.selfPlayerId],
   );
+  const selfPlayer =
+    tablePlayers.find((player) => player.playerId === snapshot.selfPlayerId) ??
+    playersById.get(snapshot.selfPlayerId);
+  const opponentPlayers = tablePlayers.filter(
+    (player) => player.playerId !== snapshot.selfPlayerId,
+  );
+  const opponentSeatSlots = getDesktopOpponentSeatSlots(tablePlayers.length);
+  const resolutionSeatPositions = useMemo(() => {
+    const positions: Record<string, ResolutionSeatPosition> = {};
+
+    opponentPlayers.forEach((player, index) => {
+      const slot = opponentSeatSlots[index];
+
+      if (!slot) {
+        return;
+      }
+
+      let placement: ResolutionSeatPosition['placement'];
+
+      if (slot.variant === 'top') {
+        placement = 'top';
+      } else if (slot.variant === 'corner') {
+        placement = slot.leftPct < 50 ? 'corner-left' : 'corner-right';
+      } else {
+        placement = slot.leftPct < 50 ? 'side-left' : 'side-right';
+      }
+
+      positions[player.playerId] = {
+        leftPct: slot.leftPct,
+        topPct: slot.topPct,
+        placement,
+      };
+    });
+
+    if (selfPlayer) {
+      positions[selfPlayer.playerId] = {
+        leftPct: 50,
+        topPct: 84,
+        placement: 'self',
+      };
+    }
+
+    return positions;
+  }, [opponentPlayers, opponentSeatSlots, selfPlayer]);
   const activePlayersInOrder = orderedPlayers.filter(
     (player) => !player.isEliminated,
   );
+  const cardsInRound = activePlayersInOrder.reduce(
+    (total, player) => total + player.cardCount,
+    0,
+  );
   const claimsByPlayerId = new Map<
     string,
-    Array<(typeof match.claimHistory)[number]>
+    Array<(typeof currentMatch.claimHistory)[number]>
   >();
 
-  for (const entry of match.claimHistory) {
+  for (const entry of currentMatch.claimHistory) {
     const playerClaims = claimsByPlayerId.get(entry.playerId) ?? [];
     playerClaims.push(entry);
     claimsByPlayerId.set(entry.playerId, playerClaims);
   }
 
-  const showdown = match.showdown;
-  const timeout = match.timeout;
-  const currentTurnPlayerId = match.currentTurnPlayerId;
-  const winner = match.winnerPlayerId
-    ? playersById.get(match.winnerPlayerId)
+  const currentTurnPlayerId = currentMatch.currentTurnPlayerId;
+  const winner = currentMatch.winnerPlayerId
+    ? playersById.get(currentMatch.winnerPlayerId)
     : undefined;
-  const lastClaimEntry = match.claimHistory.at(-1);
+  const lastClaimEntry = currentMatch.claimHistory.at(-1);
+  const lastClaimPlayer = lastClaimEntry
+    ? playersById.get(lastClaimEntry.playerId)
+    : undefined;
   const remainingMs = turnTimer
     ? turnTimer.isPaused || turnTimer.deadlineAtMs === undefined
       ? turnTimer.remainingMs
@@ -332,39 +410,8 @@ export function TableView({
     remainingMs === 0 ||
     isShowingResult;
   const checkDisabled =
-    !match.lastClaim || !isMyTurn || !!winner || actionDisabled;
-  const tableStatus = winner
-    ? {
-        label: 'Match winner',
-        title: winner.name,
-        detail: 'The table is closed until the host returns to the lobby.',
-      }
-    : isShowingResult
-      ? {
-          label: 'Showdown',
-          title: 'Resolving round',
-          detail: 'The server is presenting the round result right now.',
-        }
-      : isPaused
-        ? {
-            label: 'Clock paused',
-            title: currentPlayer?.name ?? 'Paused',
-            detail: 'The host paused this turn. No moves can be made yet.',
-          }
-        : match.lastClaim
-          ? {
-              label: 'Claim to beat',
-              title: claimToCompactLabel(match.lastClaim),
-              detail: lastClaimEntry
-                ? `Spoken by ${playersById.get(lastClaimEntry.playerId)?.name ?? 'Unknown'}.`
-                : 'Raise it or check it.',
-            }
-          : {
-              label: 'Table open',
-              title: 'Opening move',
-              detail: 'Any legal claim can start the round.',
-            };
-  const canOpenClaimTray =
+    !currentMatch.lastClaim || !isMyTurn || !!winner || actionDisabled;
+  const canOpenClaimComposer =
     isMyTurn && !winner && !isPaused && !isShowingResult && !actionDisabled;
   const dockMessage = winner
     ? `${winner.name} won the match.`
@@ -373,10 +420,36 @@ export function TableView({
       : isShowingResult
         ? 'Round result is being shown.'
         : isMyTurn
-          ? match.lastClaim
+          ? currentMatch.lastClaim
             ? 'Raise the current claim or check it.'
             : 'Open the round with any legal claim.'
           : `Waiting for ${currentPlayer?.name ?? 'the active player'} to act.`;
+  const claimPotCopy = winner
+    ? null
+    : isPaused
+      ? {
+          label: 'Clock paused',
+          title: currentMatch.lastClaim
+            ? claimToCompactLabel(currentMatch.lastClaim)
+            : 'Table waiting',
+          detail: currentPlayer
+            ? `Paused on ${currentPlayer.name}.`
+            : 'The host paused the turn clock.',
+        }
+      : currentMatch.lastClaim
+        ? {
+            label: 'Claim on table',
+            title: claimToCompactLabel(currentMatch.lastClaim),
+            detail: lastClaimPlayer
+              ? `${lastClaimPlayer.name} set the pace.`
+              : 'Raise it or check it.',
+          }
+        : {
+            label: 'Open table',
+            title: 'No claim yet',
+            detail: 'Any legal claim can open the round.',
+          };
+  const isClaimComposerVisible = claimComposerStage !== 'closed';
 
   useEffect(() => {
     if (winner || isShowingResult) {
@@ -445,10 +518,113 @@ export function TableView({
   }, [claimPulse]);
 
   useEffect(() => {
-    if (!canOpenClaimTray) {
-      setIsClaimTrayOpen(false);
+    if (!canOpenClaimComposer) {
+      setClaimComposerStage('closed');
     }
-  }, [canOpenClaimTray]);
+  }, [canOpenClaimComposer]);
+
+  useEffect(() => {
+    if (!isShowingResult) {
+      return;
+    }
+
+    onSetTablePanelOpen(false);
+    setIsChatPanelOpen(false);
+  }, [isShowingResult, onSetTablePanelOpen]);
+
+  useEffect(() => {
+    if (claimComposerStage !== 'opening') {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      setClaimComposerStage('open');
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [claimComposerStage]);
+
+  useEffect(() => {
+    if (claimComposerStage !== 'closing') {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setClaimComposerStage('closed');
+    }, 260);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [claimComposerStage]);
+
+  useEffect(() => {
+    const nextEntry = lastClaimEntry ?? null;
+    const previousEntry = previousRenderedClaimRef.current;
+    const previousSequenceNumber = previousEntry?.sequenceNumber ?? null;
+    const nextSequenceNumber = nextEntry?.sequenceNumber ?? null;
+
+    if (previousSequenceNumber === nextSequenceNumber) {
+      return;
+    }
+
+    previousRenderedClaimRef.current = nextEntry;
+
+    if (!nextEntry) {
+      setClaimTransition({
+        phase: 'idle',
+        token: Date.now(),
+        outgoingEntry: null,
+      });
+      return;
+    }
+
+    const nextToken = Date.now();
+
+    setClaimTransition({
+      phase: previousEntry ? 'swapping' : 'entering',
+      token: nextToken,
+      outgoingEntry: previousEntry,
+    });
+
+    const timeoutId = window.setTimeout(() => {
+      setClaimTransition((current) =>
+        current.token === nextToken
+          ? {
+              phase: 'idle',
+              token: current.token,
+              outgoingEntry: null,
+            }
+          : current,
+      );
+    }, 480);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [lastClaimEntry]);
+
+  function openClaimComposer() {
+    if (!canOpenClaimComposer) {
+      return;
+    }
+
+    setClaimComposerStage((current) =>
+      current === 'closed' ? 'opening' : current,
+    );
+  }
+
+  function closeClaimComposer() {
+    setClaimComposerStage((current) => {
+      if (current === 'closed' || current === 'closing') {
+        return current;
+      }
+
+      return 'closing';
+    });
+  }
 
   function renderChatRailContent(hideChatHeader = false) {
     return (
@@ -529,6 +705,7 @@ export function TableView({
         <ul className="player-list">
           {orderedPlayers.map((player) => {
             const playerClaims = claimsByPlayerId.get(player.playerId) ?? [];
+            const isDisconnected = player.connectionStatus === 'disconnected';
 
             return (
               <li
@@ -589,6 +766,12 @@ export function TableView({
                             ? 'out'
                             : `${player.cardCount} dealt`}
                         </span>
+                        {isDisconnected ? (
+                          <span className="pill idle">
+                            <SignalIcon className="status-icon" />
+                            offline
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </summary>
@@ -626,67 +809,130 @@ export function TableView({
     );
   }
 
-  function renderTableSeatRing() {
+  function renderHiddenCardFan({
+    count,
+    className,
+  }: {
+    count: number;
+    className?: string;
+  }) {
+    const visibleCount = Math.max(1, Math.min(count, 3));
+    const hiddenCardOffsets = Array.from(
+      { length: visibleCount },
+      (_, slotIndex) => slotIndex - (visibleCount - 1) / 2,
+    );
+
     return (
-      <div className="table-seat-ring" aria-label="Table seats">
-        {tablePlayers.map((player, index) => {
+      <div
+        className={`poker-hidden-card-fan ${className ?? ''}`.trim()}
+        aria-hidden="true"
+      >
+        {hiddenCardOffsets.map((offset) => {
+          return (
+            <span
+              key={`${count}-${offset}`}
+              className="poker-hidden-card"
+              style={
+                {
+                  '--poker-hidden-card-offset': `${offset * 0.72}rem`,
+                  '--poker-hidden-card-rotation': `${offset * 10}deg`,
+                } as CSSProperties
+              }
+            />
+          );
+        })}
+      </div>
+    );
+  }
+
+  function renderOpponentAnchors() {
+    return (
+      <div className="poker-seat-ring" aria-label="Opponent seats">
+        {opponentPlayers.map((player, index) => {
+          const slot = opponentSeatSlots[index];
+
+          if (!slot) {
+            return null;
+          }
+
           const isCurrentTurn = player.playerId === currentTurnPlayerId;
-          const isSelf = player.playerId === snapshot.selfPlayerId;
           const isTurnArriving = turnAnnouncement?.playerId === player.playerId;
-          const seatCountLabel = player.isEliminated
-            ? 'Out'
-            : `${player.cardCount} ${player.cardCount === 1 ? 'card' : 'cards'}`;
+          const isDisconnected = player.connectionStatus === 'disconnected';
+          const isLowCards = !player.isEliminated && player.cardCount <= 1;
+          const isJustClaimed = claimPulse?.playerId === player.playerId;
+          const seatCopy = buildSeatAnchorCopy({
+            player,
+            isCurrentTurn,
+            isLowCards,
+            isDisconnected,
+            isSelf: false,
+            isPaused,
+          });
           const timerTone = isCurrentTurn ? timerUrgency : undefined;
-          const seatBadgeTone = isSelf
-            ? 'table-seat-chip-self'
-            : player.isBot
-              ? 'table-seat-chip-bot'
-              : player.isHost
-                ? 'table-seat-chip-host'
-                : null;
-          const seatBadgeLabel = isSelf
-            ? 'You'
-            : player.isBot
-              ? 'Bot'
-              : player.isHost
-                ? 'Host'
-                : null;
+          const slotSideClass =
+            slot.leftPct < 50
+              ? 'is-left'
+              : slot.leftPct > 50
+                ? 'is-right'
+                : 'is-center';
 
           return (
             <article
               key={player.playerId}
-              className={`table-seat-card ${getSeatToneClass(player.seatIndex)} ${isCurrentTurn ? 'is-current-turn' : ''} ${player.isEliminated ? 'is-eliminated' : ''} ${isTurnArriving ? 'is-turn-arriving' : ''} ${isSelf ? 'is-self-seat' : ''}`}
-              style={buildTableSeatStyle(index, tablePlayers.length)}
+              className={`poker-seat-anchor poker-seat-anchor-opponent seat-slot-${slot.variant} ${slotSideClass} ${getSeatToneClass(player.seatIndex)} ${isCurrentTurn ? 'is-current-turn' : ''} ${player.isEliminated ? 'is-eliminated' : ''} ${isTurnArriving ? 'is-turn-arriving' : ''} ${isJustClaimed ? 'is-just-claimed' : ''} ${isDisconnected ? 'is-disconnected' : ''} ${isLowCards ? 'is-low-cards' : ''}`}
+              style={buildTableSeatStyle(slot)}
+              aria-label={`${player.name}, ${player.cardCount} ${player.cardCount === 1 ? 'card' : 'cards'}`}
             >
-              <div className="table-seat-avatar-wrap">
-                <PlayerAvatar
-                  name={player.name}
-                  seatIndex={player.seatIndex}
-                  size={isSelf ? 'md' : 'sm'}
-                  {...(isCurrentTurn && turnProgress !== undefined
-                    ? {
-                        timerProgress: turnProgress,
-                        timerTone,
-                      }
-                    : {})}
-                />
-                <span
-                  className={`table-seat-count ${player.isEliminated ? 'is-eliminated' : ''} ${isCurrentTurn ? 'is-current-turn' : ''}`}
-                >
-                  {player.isEliminated ? 'Out' : player.cardCount}
-                </span>
+              <div className="poker-seat-anchor-head">
+                <div className="poker-seat-avatar-wrap">
+                  <PlayerAvatar
+                    name={player.name}
+                    seatIndex={player.seatIndex}
+                    size="sm"
+                    {...(isCurrentTurn && turnProgress !== undefined
+                      ? {
+                          timerProgress: turnProgress,
+                          timerTone,
+                        }
+                      : {})}
+                  />
+                  <span
+                    className={`poker-seat-count ${player.isEliminated ? 'is-eliminated' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-low-cards' : ''}`}
+                  >
+                    {player.isEliminated ? 'Out' : player.cardCount}
+                  </span>
+                </div>
+
+                {!isShowingResult
+                  ? renderHiddenCardFan({
+                      count: player.cardCount,
+                      className: 'poker-seat-fan',
+                    })
+                  : null}
               </div>
 
-              <div className="table-seat-badge">
-                <div className="table-seat-name-row">
-                  <strong>{player.name}</strong>
-                  {seatBadgeLabel && seatBadgeTone ? (
-                    <span className={`table-seat-chip ${seatBadgeTone}`}>
-                      {seatBadgeLabel}
+              <div className="poker-seat-chip">
+                <strong>{player.name}</strong>
+                <div className="poker-seat-flags">
+                  {seatCopy.roleChipLabel ? (
+                    <span className="poker-seat-tag">
+                      {player.isBot ? (
+                        <BotIcon className="poker-seat-chip-icon" />
+                      ) : null}
+                      {player.isHost && !player.isBot ? (
+                        <CrownIcon className="poker-seat-chip-icon" />
+                      ) : null}
+                      {seatCopy.roleChipLabel}
+                    </span>
+                  ) : null}
+                  {seatCopy.stateChipLabel ? (
+                    <span
+                      className={`poker-seat-tag is-state ${player.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-offline' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-pressure' : ''}`}
+                    >
+                      {seatCopy.stateChipLabel}
                     </span>
                   ) : null}
                 </div>
-                <span className="table-seat-meta">{seatCountLabel}</span>
               </div>
             </article>
           );
@@ -695,11 +941,258 @@ export function TableView({
     );
   }
 
+  function renderSelfAnchor() {
+    if (!selfPlayer) {
+      return null;
+    }
+
+    const isCurrentTurn = selfPlayer.playerId === currentTurnPlayerId;
+    const isDisconnected = selfPlayer.connectionStatus === 'disconnected';
+    const isLowCards = !selfPlayer.isEliminated && selfPlayer.cardCount <= 1;
+    const seatCopy = buildSeatAnchorCopy({
+      player: selfPlayer,
+      isCurrentTurn,
+      isLowCards,
+      isDisconnected,
+      isSelf: true,
+      isPaused,
+    });
+
+    return (
+      <section
+        className={`poker-self-rail ${getSeatToneClass(selfPlayer.seatIndex)} ${isCurrentTurn ? 'is-current-turn' : ''} ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-disconnected' : ''} ${isShowingResult ? 'is-showing-result' : ''}`}
+        aria-label="Your seat"
+      >
+        <div className="poker-self-identity">
+          <div className="poker-seat-avatar-wrap">
+            <PlayerAvatar
+              name={selfPlayer.name}
+              seatIndex={selfPlayer.seatIndex}
+              size="md"
+              {...(isCurrentTurn && turnProgress !== undefined
+                ? {
+                    timerProgress: turnProgress,
+                    timerTone: timerUrgency,
+                  }
+                : {})}
+            />
+            <span
+              className={`poker-seat-count ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-low-cards' : ''}`}
+            >
+              {selfPlayer.isEliminated ? 'Out' : selfPlayer.cardCount}
+            </span>
+          </div>
+
+          <div className="poker-self-copy">
+            <div className="poker-seat-chip is-self">
+              <strong>{selfPlayer.name}</strong>
+              <div className="poker-seat-flags">
+                {seatCopy.roleChipLabel ? (
+                  <span className="poker-seat-tag">
+                    {seatCopy.roleChipLabel}
+                  </span>
+                ) : null}
+                {seatCopy.stateChipLabel ? (
+                  <span
+                    className={`poker-seat-tag is-state ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-offline' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-pressure' : ''}`}
+                  >
+                    {seatCopy.stateChipLabel}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+
+            <span className="poker-self-hand-label">
+              Your hand · {yourHand.length}{' '}
+              {yourHand.length === 1 ? 'card' : 'cards'}
+            </span>
+          </div>
+        </div>
+
+        {!isShowingResult ? (
+          <div className="poker-self-hand">
+            <ClaimCardStack cards={sortCardsDescending(yourHand)} />
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
+  function renderClaimPot() {
+    if (winner || isShowingResult || !claimPotCopy) {
+      return null;
+    }
+
+    const outgoingClaim = claimTransition.outgoingEntry?.claim;
+    const outgoingPlayerName = claimTransition.outgoingEntry
+      ? (playersById.get(claimTransition.outgoingEntry.playerId)?.name ??
+        'Unknown')
+      : undefined;
+    const activeClaim = currentMatch.lastClaim;
+
+    return (
+      <section
+        className={`poker-claim-pot ${activeClaim ? 'has-claim' : 'is-opening'} ${isPaused ? 'is-paused' : ''} ${claimTransition.phase === 'entering' ? 'is-entering' : ''} ${claimTransition.phase === 'swapping' ? 'is-swapping' : ''}`}
+        aria-label="Current claim"
+      >
+        <div className="poker-claim-pot-copy">
+          <span className="poker-object-label">{claimPotCopy.label}</span>
+          <strong className="poker-claim-pot-title">
+            {claimPotCopy.title}
+          </strong>
+          <span className="poker-claim-pot-detail">{claimPotCopy.detail}</span>
+        </div>
+
+        <div className="poker-claim-pot-visual">
+          {outgoingClaim && claimTransition.phase === 'swapping' ? (
+            <div className="poker-claim-pot-layer is-outgoing">
+              <ClaimCardStack
+                cards={claimToIllustrationCards(outgoingClaim)}
+                compact
+              />
+              <span className="poker-claim-pot-layer-text">
+                {outgoingPlayerName
+                  ? `${outgoingPlayerName} spoke ${claimToCompactLabel(outgoingClaim)}.`
+                  : claimToCompactLabel(outgoingClaim)}
+              </span>
+            </div>
+          ) : null}
+
+          {activeClaim ? (
+            <div className="poker-claim-pot-layer is-current">
+              <ClaimCardStack
+                cards={claimToIllustrationCards(activeClaim)}
+                compact
+              />
+              <span className="poker-claim-pot-layer-text">
+                {lastClaimPlayer
+                  ? `${lastClaimPlayer.name} set ${claimToCompactLabel(activeClaim)}.`
+                  : claimToCompactLabel(activeClaim)}
+              </span>
+            </div>
+          ) : (
+            <div className="poker-claim-pot-opening">
+              <span className="poker-claim-pot-opening-dot" />
+              <span>Open the round with any legal claim.</span>
+            </div>
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  function renderDeckObject() {
+    if (winner || isShowingResult) {
+      return null;
+    }
+
+    return (
+      <div
+        className="poker-table-deck"
+        aria-label={`Cards in round ${cardsInRound}`}
+      >
+        <div className="poker-table-deck-stack" aria-hidden="true">
+          <span className="poker-table-deck-card poker-table-deck-card-back" />
+          <span className="poker-table-deck-card poker-table-deck-card-back" />
+          <span className="poker-table-deck-card poker-table-deck-card-back is-front" />
+        </div>
+
+        <div className="poker-table-deck-chip">
+          <span className="poker-object-label">Cards in round</span>
+          <strong>{cardsInRound}</strong>
+        </div>
+      </div>
+    );
+  }
+
+  function renderWinnerPot() {
+    if (!winner || isShowingResult) {
+      return null;
+    }
+
+    return (
+      <section className="poker-winner-pot" aria-label="Match winner">
+        <PlayerAvatar
+          name={winner.name}
+          seatIndex={winner.seatIndex}
+          size="lg"
+        />
+        <div className="poker-winner-copy">
+          <span className="poker-object-label">Match winner</span>
+          <strong>{winner.name}</strong>
+          <span>The table is closed until the host returns to the lobby.</span>
+        </div>
+      </section>
+    );
+  }
+
+  function renderClaimComposerPopup() {
+    if (!isClaimComposerVisible) {
+      return null;
+    }
+
+    const currentLastClaim = currentMatch.lastClaim;
+
+    return (
+      <div
+        className={`poker-claim-popup-overlay is-${claimComposerStage}`}
+        role="presentation"
+      >
+        <button
+          type="button"
+          className="poker-claim-popup-scrim"
+          onClick={closeClaimComposer}
+          aria-label="Close claim builder"
+        />
+
+        <dialog
+          open
+          className="poker-claim-popup-shell"
+          aria-modal="true"
+          aria-label="Claim builder"
+        >
+          <div className="poker-claim-popup-header">
+            <div>
+              <p className="eyebrow">Claim builder</p>
+              <h2>Pick your exact claim</h2>
+              <p className="claim-helper-text">
+                {selectedComposerClaim
+                  ? `Selected: ${claimToCompactLabel(selectedComposerClaim)}`
+                  : currentLastClaim
+                    ? 'Choose a stronger claim than the one on the table.'
+                    : 'Choose the claim that opens the round.'}
+              </p>
+            </div>
+
+            <button
+              type="button"
+              className="ghost-button poker-table-control-button"
+              onClick={closeClaimComposer}
+            >
+              Close
+            </button>
+          </div>
+
+          <ClaimComposer
+            claimOrderPreset={snapshot.settings.claimOrderPreset}
+            disabled={actionDisabled}
+            {...(currentLastClaim ? { lastClaim: currentLastClaim } : {})}
+            onSelectedClaimChange={setSelectedComposerClaim}
+            onSubmit={(claimKey) => {
+              closeClaimComposer();
+              onSubmitClaim(claimKey);
+            }}
+          />
+        </dialog>
+      </div>
+    );
+  }
+
   return (
     <section className="surface-grid match-layout">
-      <article className="hero-panel match-main-panel">
-        <div className="match-scene-header">
-          <div className="match-copy-stack">
+      <article className="hero-panel poker-match-shell">
+        <div className="poker-match-header">
+          <div className="poker-match-copy">
             <p className="eyebrow">Match</p>
             <h1>Round {match.roundNumber}</h1>
             <p className="lead">
@@ -714,80 +1207,95 @@ export function TableView({
                       : `${currentPlayer?.name ?? 'Another player'} is acting.`}
             </p>
           </div>
-
-          <div className="table-utility-strip">
-            <button
-              type="button"
-              className="ghost-button table-launcher-button"
-              aria-expanded={isTablePanelOpen}
-              aria-controls="table-drawer"
-              onClick={() => {
-                setIsChatPanelOpen(false);
-                onSetTablePanelOpen(!isTablePanelOpen);
-              }}
-            >
-              {isTablePanelOpen ? 'Hide players' : 'Show players'}
-            </button>
-            <button
-              type="button"
-              className="ghost-button chat-toggle-button"
-              aria-expanded={isChatPanelOpen}
-              aria-controls="chat-drawer"
-              onClick={() => {
-                onSetTablePanelOpen(false);
-                setIsChatPanelOpen((current) => !current);
-              }}
-            >
-              {isChatPanelOpen ? 'Hide chat' : 'Show chat'}
-            </button>
-            {isHost && turnTimer && !winner ? (
-              <button
-                type="button"
-                className="ghost-button table-utility-button"
-                onClick={() => onSetPauseState(!isPaused)}
-                disabled={!isConnected || pendingCommand !== null}
-              >
-                {isPaused ? 'Resume' : 'Pause'}
-              </button>
-            ) : null}
-            <span className="pill ready">
-              <CardsIcon className="status-icon" />
-              Room {snapshot.roomCode}
-            </span>
-            {turnTimer && remainingMs !== null ? (
-              <span
-                className={`${isPaused ? 'pill idle' : 'pill connected'} timer-pill timer-pill-${timerUrgency}`}
-              >
-                <TimerIcon className="status-icon" />
-                {isPaused ? 'paused' : formatRemainingMs(remainingMs)}
-              </span>
-            ) : null}
-            <span className={isConnected ? 'pill connected' : 'pill idle'}>
-              <SignalIcon className="status-icon" />
-              {isConnected ? 'live' : 'reconnecting'}
-            </span>
-          </div>
         </div>
 
         <div
-          className={`table-stage ${timerUrgency === 'warning' ? 'is-warning-clock' : ''} ${timerUrgency === 'critical' ? 'is-critical-clock' : ''}`}
+          className={`poker-table-stage ${timerUrgency === 'warning' ? 'is-warning-clock' : ''} ${timerUrgency === 'critical' ? 'is-critical-clock' : ''} ${isResolutionStageOpen ? 'is-showing-result' : ''}`}
         >
-          <div className="table-stage-scenery" aria-hidden="true">
-            <div className="table-stage-glow table-stage-glow-left" />
-            <div className="table-stage-glow table-stage-glow-right" />
-            <div className="table-stage-city table-stage-city-left" />
-            <div className="table-stage-city table-stage-city-right" />
-            <div className="table-stage-hill table-stage-hill-left" />
-            <div className="table-stage-hill table-stage-hill-right" />
+          <div className="poker-table-scenery" aria-hidden="true">
+            <div className="poker-table-ambient poker-table-ambient-left" />
+            <div className="poker-table-ambient poker-table-ambient-right" />
+            <div className="poker-table-ambient-center" />
+            <div className="poker-table-foreground-glow" />
           </div>
 
-          <div className="table-stage-inner">
+          <div className="poker-table-stage-inner">
+            <div
+              className={`poker-table-controls poker-table-controls-left ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
+            >
+              <button
+                type="button"
+                className="ghost-button poker-table-control-button"
+                aria-expanded={isTablePanelOpen}
+                aria-controls="table-drawer"
+                disabled={isShowingResult}
+                onClick={() => {
+                  setIsChatPanelOpen(false);
+                  onSetTablePanelOpen(!isTablePanelOpen);
+                }}
+              >
+                <SeatsIcon className="status-icon" />
+                {isTablePanelOpen ? 'Hide players' : 'Players'}
+              </button>
+
+              <button
+                type="button"
+                className="ghost-button poker-table-control-button"
+                aria-expanded={isChatPanelOpen}
+                aria-controls="chat-drawer"
+                disabled={isShowingResult}
+                onClick={() => {
+                  onSetTablePanelOpen(false);
+                  setIsChatPanelOpen((current) => !current);
+                }}
+              >
+                <ChatIcon className="status-icon" />
+                {isChatPanelOpen ? 'Hide chat' : 'Chat'}
+              </button>
+
+              {isHost && turnTimer && !winner ? (
+                <button
+                  type="button"
+                  className="ghost-button poker-table-control-button"
+                  onClick={() => onSetPauseState(!isPaused)}
+                  disabled={
+                    !isConnected || pendingCommand !== null || isShowingResult
+                  }
+                >
+                  {isPaused ? 'Resume' : 'Pause'}
+                </button>
+              ) : null}
+            </div>
+
+            <div
+              className={`poker-table-controls poker-table-controls-right ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
+            >
+              <span className="pill ready poker-table-status">
+                <CardsIcon className="status-icon" />
+                Room {snapshot.roomCode}
+              </span>
+              {turnTimer && remainingMs !== null ? (
+                <span
+                  className={`${isPaused ? 'pill idle' : 'pill connected'} poker-table-status poker-table-timer timer-pill-${timerUrgency}`}
+                >
+                  <TimerIcon className="status-icon" />
+                  {isPaused ? 'paused' : formatRemainingMs(remainingMs)}
+                </span>
+              ) : null}
+              <span
+                className={`${isConnected ? 'pill connected' : 'pill idle'} poker-table-status`}
+              >
+                <SignalIcon className="status-icon" />
+                {isConnected ? 'live' : 'reconnecting'}
+              </span>
+            </div>
+
             {turnAnnouncement ? (
               <div
                 key={turnAnnouncement.token}
-                className={`turn-handoff-banner ${turnAnnouncement.playerId === snapshot.selfPlayerId ? 'is-self' : ''}`}
+                className={`poker-turn-banner ${turnAnnouncement.playerId === snapshot.selfPlayerId ? 'is-self' : ''}`}
               >
-                <span className="turn-handoff-kicker">Turn handoff</span>
+                <span className="poker-turn-banner-kicker">Turn handoff</span>
                 <strong>
                   {turnAnnouncement.playerId === snapshot.selfPlayerId
                     ? 'Your move'
@@ -796,205 +1304,100 @@ export function TableView({
               </div>
             ) : null}
 
-            <div
-              className={`table-center-status ${claimPulse && lastClaimEntry?.sequenceNumber === claimPulse.sequenceNumber ? 'is-fresh-claim' : ''}`}
-            >
-              <span className="table-center-status-label">
-                {tableStatus.label}
-              </span>
-              <strong className="table-center-status-title">
-                {tableStatus.title}
-              </strong>
-              <span className="table-center-status-detail">
-                {tableStatus.detail}
-              </span>
-            </div>
-
-            {renderTableSeatRing()}
-
-            <div className="table-hand-rail" aria-label="Your hand">
-              <ClaimCardStack cards={sortCardsDescending(yourHand)} />
-            </div>
+            {renderClaimPot()}
+            {renderDeckObject()}
+            {renderWinnerPot()}
+            {renderOpponentAnchors()}
+            {renderSelfAnchor()}
+            {activeResolution && isResolutionStageOpen ? (
+              <RoundResolutionOverlay
+                result={activeResolution}
+                players={snapshot.players}
+                seatPositions={resolutionSeatPositions}
+              />
+            ) : null}
+            {renderClaimComposerPopup()}
           </div>
         </div>
 
         <div
-          className={`table-action-stack ${canOpenClaimTray && isClaimTrayOpen ? 'has-open-tray' : ''}`}
+          className={`poker-footer ${isClaimComposerVisible ? 'has-open-tray' : ''} ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
         >
-          <div className="table-action-note">{dockMessage}</div>
-
-          {!isClaimTrayOpen && selectedComposerClaim ? (
-            <div className="table-selected-claim-pill">
-              Selected claim: {claimToCompactLabel(selectedComposerClaim)}
-            </div>
-          ) : null}
+          <div className="poker-footer-note">{dockMessage}</div>
 
           {winner ? (
-            <div className="table-action-dock">
+            <div className="poker-footer-dock">
               {isHost ? (
                 <button
                   type="button"
-                  className="table-action-button table-action-button-primary table-action-button-wide"
+                  className="poker-footer-button poker-footer-button-primary poker-footer-button-wide"
                   onClick={onRestartMatch}
                 >
                   Return to lobby
                 </button>
               ) : (
-                <div className="table-action-placeholder">
+                <div className="poker-footer-placeholder">
                   Waiting for the host to return to the lobby.
                 </div>
               )}
             </div>
           ) : (
             <>
-              <div className="table-action-zone">
-                <div className="table-action-dock">
+              <div className="poker-footer-zone">
+                <div className="poker-footer-dock">
                   <button
                     type="button"
-                    className={`table-action-button table-action-button-primary ${isClaimTrayOpen ? 'is-open' : ''}`}
-                    onClick={() => setIsClaimTrayOpen((current) => !current)}
-                    disabled={!canOpenClaimTray}
+                    className={`poker-footer-button poker-footer-button-primary ${isClaimComposerVisible ? 'is-open' : ''}`}
+                    onClick={() => {
+                      if (isClaimComposerVisible) {
+                        closeClaimComposer();
+                        return;
+                      }
+
+                      openClaimComposer();
+                    }}
+                    disabled={!canOpenClaimComposer}
                   >
-                    {isClaimTrayOpen
-                      ? 'Hide claim'
-                      : selectedComposerClaim
-                        ? 'Edit claim'
-                        : match.lastClaim
-                          ? 'Build claim'
-                          : 'Open claim'}
+                    <span className="poker-footer-button-copy">
+                      <span className="poker-footer-button-kicker">
+                        {selectedComposerClaim
+                          ? claimToCompactLabel(selectedComposerClaim)
+                          : match.lastClaim
+                            ? 'Raise the table'
+                            : 'Start the round'}
+                      </span>
+                      <strong className="poker-footer-button-label">
+                        {isClaimComposerVisible
+                          ? 'Close builder'
+                          : selectedComposerClaim
+                            ? 'Edit claim'
+                            : match.lastClaim
+                              ? 'Build claim'
+                              : 'Open claim'}
+                      </strong>
+                    </span>
                   </button>
 
                   <button
                     type="button"
-                    className="table-action-button table-action-button-check"
+                    className="poker-footer-button poker-footer-button-check"
                     onClick={onChallengeClaim}
                     disabled={checkDisabled}
                   >
-                    Check
+                    <span className="poker-footer-button-copy">
+                      <span className="poker-footer-button-kicker">
+                        Call it now
+                      </span>
+                      <strong className="poker-footer-button-label">
+                        Check
+                      </strong>
+                    </span>
                   </button>
                 </div>
-
-                {canOpenClaimTray && isClaimTrayOpen ? (
-                  <div className="claim-tray-shell">
-                    <div className="claim-tray-header">
-                      <div>
-                        <p className="eyebrow">Claim tray</p>
-                        <h2>Pick a claim</h2>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="ghost-button table-utility-button"
-                        onClick={() => setIsClaimTrayOpen(false)}
-                      >
-                        Close
-                      </button>
-                    </div>
-
-                    <ClaimComposer
-                      claimOrderPreset={snapshot.settings.claimOrderPreset}
-                      disabled={actionDisabled}
-                      {...(match.lastClaim
-                        ? { lastClaim: match.lastClaim }
-                        : {})}
-                      onSelectedClaimChange={setSelectedComposerClaim}
-                      onSubmit={(claimKey) => {
-                        setIsClaimTrayOpen(false);
-                        onSubmitClaim(claimKey);
-                      }}
-                    />
-                  </div>
-                ) : null}
               </div>
             </>
           )}
         </div>
-
-        {!isResolutionOverlayOpen && showdown ? (
-          <ResultDetails
-            title="Last showdown"
-            summary={
-              showdown.claimWasValid
-                ? `${playersById.get(showdown.challengerPlayerId)?.name ?? 'The challenger'} lost on ${claimToCompactLabel(showdown.spokenClaim)}`
-                : `${playersById.get(showdown.claimantPlayerId)?.name ?? 'The claimant'} bluffed ${claimToCompactLabel(showdown.spokenClaim)}`
-            }
-          >
-            <p>
-              <strong>
-                {playersById.get(showdown.claimantPlayerId)?.name}
-              </strong>{' '}
-              said <strong>{claimToCompactLabel(showdown.spokenClaim)}</strong>.{' '}
-              {showdown.claimWasValid
-                ? `${playersById.get(showdown.challengerPlayerId)?.name} lost the challenge.`
-                : `${playersById.get(showdown.claimantPlayerId)?.name} was bluffing.`}
-            </p>
-            <p>
-              Loser:{' '}
-              <strong>{playersById.get(showdown.loserPlayerId)?.name}</strong>
-              {showdown.loserEliminated
-                ? ' and they were eliminated.'
-                : `, next hand size ${showdown.loserHandSize}.`}
-            </p>
-
-            <div className="revealed-hands">
-              {showdown.revealedHands.map((hand) => (
-                <div key={hand.playerId} className="revealed-hand">
-                  <strong>{playersById.get(hand.playerId)?.name}</strong>
-                  <div className="card-row compact-row">
-                    {sortCardsDescending(hand.cards).map((card) => (
-                      <span
-                        key={`${hand.playerId}-${card.rank}-${card.suit}`}
-                        className={`mini-card suit-${card.suit}`}
-                      >
-                        {cardToShortLabel(card)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </ResultDetails>
-        ) : null}
-
-        {!isResolutionOverlayOpen && timeout ? (
-          <ResultDetails
-            title="Last timeout"
-            summary={`${playersById.get(timeout.timedOutPlayerId)?.name ?? 'A player'} ran out of time`}
-          >
-            <p>
-              <strong>{playersById.get(timeout.timedOutPlayerId)?.name}</strong>{' '}
-              ran out of time
-              {timeout.lastClaim
-                ? ` while facing ${claimToCompactLabel(timeout.lastClaim)}`
-                : ' before making the opening claim'}
-              .
-            </p>
-            <p>
-              Loss applied:
-              {timeout.loserEliminated
-                ? ' they were eliminated.'
-                : ` next hand size ${timeout.loserHandSize}.`}
-            </p>
-
-            <div className="revealed-hands">
-              {timeout.revealedHands.map((hand) => (
-                <div key={hand.playerId} className="revealed-hand">
-                  <strong>{playersById.get(hand.playerId)?.name}</strong>
-                  <div className="card-row compact-row">
-                    {sortCardsDescending(hand.cards).map((card) => (
-                      <span
-                        key={`${hand.playerId}-${card.rank}-${card.suit}`}
-                        className={`mini-card suit-${card.suit}`}
-                      >
-                        {cardToShortLabel(card)}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </ResultDetails>
-        ) : null}
       </article>
 
       <button
@@ -1053,13 +1456,6 @@ export function TableView({
 
         <div className="chat-drawer-content">{renderChatRailContent(true)}</div>
       </aside>
-
-      {activeResolution && isResolutionOverlayOpen ? (
-        <RoundResolutionOverlay
-          result={activeResolution}
-          players={snapshot.players}
-        />
-      ) : null}
     </section>
   );
 }

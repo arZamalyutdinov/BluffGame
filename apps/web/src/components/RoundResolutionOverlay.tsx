@@ -26,7 +26,8 @@ import {
   sortCardsDescending,
 } from '@bluff-game/shared';
 
-import { PlayerAvatar } from './PlayerAvatar.js';
+import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+import { ClaimCardStack } from './ClaimPreview.js';
 
 type ResolutionResult =
   | {
@@ -43,6 +44,19 @@ type ResolutionResult =
 interface RoundResolutionOverlayProps {
   result: ResolutionResult;
   players: PlayerSnapshot[];
+  seatPositions: Record<string, ResolutionSeatPosition>;
+}
+
+export interface ResolutionSeatPosition {
+  leftPct: number;
+  topPct: number;
+  placement:
+    | 'top'
+    | 'side-left'
+    | 'side-right'
+    | 'corner-left'
+    | 'corner-right'
+    | 'self';
 }
 
 const FIREWORK_IDS = ['alpha', 'beta', 'gamma'] as const;
@@ -226,33 +240,21 @@ function buildExpectedSlotSpecs(claim: Claim): ExpectedSlotSpec[] {
   }
 }
 
-function buildRingPositionStyle(index: number, total: number): CSSProperties {
-  const angleInRadians =
-    ((-90 + (360 / Math.max(total, 1)) * index) * Math.PI) / 180;
-  const offsetX = Math.cos(angleInRadians);
-  const offsetY = Math.sin(angleInRadians);
-
-  return {
-    '--resolution-offset-x': `${offsetX}`,
-    '--resolution-offset-y': `${offsetY}`,
-  } as CSSProperties;
-}
-
 function buildPlayerRole(
   playerId: string,
   result: ResolutionResult,
 ): string | null {
   if (result.kind === 'showdown') {
+    if (playerId === result.data.loserPlayerId) {
+      return 'lost';
+    }
+
     if (playerId === result.data.claimantPlayerId) {
       return 'checked';
     }
 
     if (playerId === result.data.challengerPlayerId) {
       return 'checker';
-    }
-
-    if (playerId === result.data.loserPlayerId) {
-      return 'lost';
     }
 
     return null;
@@ -263,6 +265,15 @@ function buildPlayerRole(
   }
 
   return null;
+}
+
+function buildSeatRevealStyle(
+  seatPosition: ResolutionSeatPosition,
+): CSSProperties {
+  return {
+    '--poker-result-seat-left': `${seatPosition.leftPct}%`,
+    '--poker-result-seat-top': `${seatPosition.topPct}%`,
+  } as CSSProperties;
 }
 
 function buildOverlayHeading(
@@ -323,11 +334,19 @@ function buildOverlayFooterText(
 function ResolutionCardFace({ card }: { card: Card }) {
   return (
     <div
-      className={`claim-visual-card resolution-card-face-shell suit-${card.suit}`}
+      className={`claim-visual-card poker-result-card-face-shell suit-${card.suit}`}
     >
       <div className="claim-visual-corners">
         <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
         <span className="claim-visual-suit">{SUIT_SYMBOLS[card.suit]}</span>
+      </div>
+      <div className="claim-visual-center">
+        <span className="claim-visual-center-suit">
+          {SUIT_SYMBOLS[card.suit]}
+        </span>
+        <span className="claim-visual-center-rank">
+          {RANK_LABELS[card.rank]}
+        </span>
       </div>
       <div className="claim-visual-corners claim-visual-corners-bottom">
         <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
@@ -349,11 +368,15 @@ function ResolutionPlaceholderCardFace({
 
   return (
     <div
-      className={`claim-visual-card resolution-placeholder-face ${missing ? 'is-missing' : ''}`.trim()}
+      className={`claim-visual-card poker-result-placeholder-face ${missing ? 'is-missing' : ''}`.trim()}
     >
       <div className="claim-visual-corners">
         <span className="claim-visual-rank">{rankLabel}</span>
         <span className="claim-visual-suit">{suitSymbol}</span>
+      </div>
+      <div className="claim-visual-center">
+        <span className="claim-visual-center-suit">{suitSymbol}</span>
+        <span className="claim-visual-center-rank">{rankLabel}</span>
       </div>
       <div className="claim-visual-corners claim-visual-corners-bottom">
         <span className="claim-visual-rank">{rankLabel}</span>
@@ -381,14 +404,14 @@ function ResolutionCard({
   return (
     <div
       ref={cardRef}
-      className={`resolution-card ${faceUp ? 'is-face-up' : ''} ${highlighted ? 'is-highlighted' : ''} ${current ? 'is-current' : ''} ${consumed ? 'is-source-consumed' : ''}`.trim()}
+      className={`poker-result-card ${faceUp ? 'is-face-up' : ''} ${highlighted ? 'is-highlighted' : ''} ${current ? 'is-current' : ''} ${consumed ? 'is-source-consumed' : ''}`.trim()}
     >
-      <div className="resolution-card-body">
-        <div className="resolution-card-inner">
-          <div className="resolution-card-face">
+      <div className="poker-result-card-body">
+        <div className="poker-result-card-inner">
+          <div className="poker-result-card-face">
             <ResolutionCardFace card={card} />
           </div>
-          <div className="resolution-card-back" />
+          <div className="poker-result-card-back" />
         </div>
       </div>
     </div>
@@ -398,6 +421,7 @@ function ResolutionCard({
 export function RoundResolutionOverlay({
   result,
   players,
+  seatPositions,
 }: RoundResolutionOverlayProps) {
   const frozenResolutionRef = useRef<{
     key: string;
@@ -509,9 +533,9 @@ export function RoundResolutionOverlay({
           : 'is-timeout',
       playersById: nextPlayersById,
       revealHands: nextRevealHands,
-      showConstructionArea: Boolean(
-        nextClaimUnderReview && nextClaimConstruction,
-      ),
+      showConstructionArea:
+        stableResult.kind === 'showdown' &&
+        Boolean(nextClaimUnderReview && nextClaimConstruction),
     };
   }, [stablePlayers, stableResult]);
   const visibleConstructedSlots = useMemo(
@@ -525,14 +549,6 @@ export function RoundResolutionOverlay({
   );
   const useMovingConstruction =
     showConstructionArea && presentConstructionSources.length > 0;
-
-  useEffect(() => {
-    document.body.style.overflow = 'hidden';
-
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, []);
 
   useLayoutEffect(() => {
     if (!useMovingConstruction || !activeConstructionSourceKey) {
@@ -718,245 +734,229 @@ export function RoundResolutionOverlay({
   ]);
 
   return (
-    <div className="resolution-overlay-backdrop" role="presentation">
-      <dialog
-        open
-        className={`resolution-overlay ${overlayTone}`.trim()}
-        aria-labelledby="round-resolution-title"
-      >
-        <header className="resolution-overlay-header">
-          <div className="resolution-heading-card">
-            <p className="eyebrow">{heading.eyebrow}</p>
-            <h2 id="round-resolution-title">{heading.title}</h2>
-            <p className="lead">{heading.text}</p>
-          </div>
-        </header>
+    <div
+      ref={stageRef}
+      className={`poker-result-stage ${overlayTone}`.trim()}
+      aria-labelledby="poker-result-title"
+      aria-live="polite"
+    >
+      <div className="poker-result-seat-layer">
+        {revealHands.map((hand, index) => {
+          const seatPosition = seatPositions[hand.playerId];
 
-        <div className="resolution-stage">
-          <div ref={stageRef} className="resolution-player-ring">
-            {revealHands.map((hand, index) => {
-              const player = playersById.get(hand.playerId);
-              const playerRole = buildPlayerRole(hand.playerId, stableResult);
-              const isRevealed = revealedCount > index;
-              const isRevealing = activeRevealPlayerId === hand.playerId;
-              const isContributing = presentConstructionSources.some(
-                (source) => source.playerId === hand.playerId,
-              );
-              const playerStyle = buildRingPositionStyle(
-                index,
-                revealHands.length,
-              );
+          if (!seatPosition) {
+            return null;
+          }
 
-              return (
-                <article
-                  key={hand.playerId}
-                  className={`resolution-player ${isRevealed ? 'is-revealed' : ''} ${isRevealing ? 'is-revealing' : ''} ${isContributing ? 'is-contributing' : ''}`.trim()}
-                  style={playerStyle}
-                >
-                  <div className="resolution-player-header">
-                    <div className="resolution-player-identity">
-                      <PlayerAvatar
-                        name={player?.name ?? 'Unknown'}
-                        seatIndex={player?.seatIndex ?? index}
-                        size="sm"
-                      />
+          const playerRole = buildPlayerRole(hand.playerId, stableResult);
+          const isRevealed = revealedCount > index;
+          const isRevealing = activeRevealPlayerId === hand.playerId;
+          const isContributing = presentConstructionSources.some(
+            (source) => source.playerId === hand.playerId,
+          );
 
-                      <div className="resolution-player-copy">
-                        <strong>{player?.name ?? 'Unknown'}</strong>
-                        <span className="resolution-player-meta">
-                          Seat {(player?.seatIndex ?? index) + 1}
-                        </span>
-                      </div>
-                    </div>
-
-                    {playerRole ? (
-                      <span className="resolution-role-pill">{playerRole}</span>
-                    ) : null}
-                  </div>
-
-                  <div className="resolution-player-hand">
-                    {hand.cards.map((card) => {
-                      const sourceKey = `${hand.playerId}:${card.rank}:${card.suit}`;
-                      const slotIndex =
-                        constructionSourceIndexes.get(sourceKey);
-                      const isConstructed =
-                        slotIndex !== undefined &&
-                        visibleConstructedSlots.has(slotIndex);
-                      const isCurrentSource =
-                        activeConstructionSourceKey === sourceKey;
-                      const isConsumed =
-                        useMovingConstruction &&
-                        slotIndex !== undefined &&
-                        (visibleConstructedSlots.has(slotIndex) ||
-                          isCurrentSource);
-
-                      return (
-                        <ResolutionCard
-                          key={sourceKey}
-                          card={card}
-                          faceUp={isRevealed}
-                          highlighted={isConstructed || isCurrentSource}
-                          current={isCurrentSource}
-                          consumed={isConsumed}
-                          cardRef={(node) => {
-                            if (node) {
-                              sourceCardRefs.current.set(sourceKey, node);
-                              return;
-                            }
-
-                            sourceCardRefs.current.delete(sourceKey);
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
-                </article>
-              );
-            })}
-
-            {movingCard ? (
-              <div className="resolution-moving-layer" aria-hidden="true">
-                <div
-                  key={movingCard.sourceKey}
-                  className="resolution-moving-card"
-                  style={
-                    {
-                      left: `${movingCard.left}px`,
-                      top: `${movingCard.top}px`,
-                      '--resolution-move-x': `${movingCard.deltaX}px`,
-                      '--resolution-move-y': `${movingCard.deltaY}px`,
-                    } as CSSProperties
-                  }
-                >
-                  <ResolutionCardFace card={movingCard.card} />
-                </div>
-              </div>
-            ) : null}
-
-            <section
-              className={`resolution-centerpiece ${phase === 'constructing' ? 'is-constructing' : ''} ${phase === 'resolved' ? 'is-resolved' : ''}`.trim()}
+          return (
+            <article
+              key={hand.playerId}
+              className={`poker-result-seat-reveal seat-placement-${seatPosition.placement} ${isRevealed ? 'is-revealed' : ''} ${isRevealing ? 'is-revealing' : ''} ${isContributing ? 'is-contributing' : ''}`.trim()}
+              style={buildSeatRevealStyle(seatPosition)}
             >
-              <p className="claim-panel-label">
-                {stableResult.kind === 'showdown'
-                  ? 'Claim under review'
-                  : claimUnderReview
-                    ? 'Claim on table'
-                    : 'Round result'}
-              </p>
+              {playerRole ? (
+                <span className="poker-result-role-pill">{playerRole}</span>
+              ) : null}
 
-              {claimUnderReview ? (
-                <>
-                  <strong className="resolution-center-title">
-                    {claimToCompactLabel(claimUnderReview)}
-                  </strong>
+              <div className="poker-result-seat-hand">
+                {hand.cards.map((card) => {
+                  const sourceKey = `${hand.playerId}:${card.rank}:${card.suit}`;
+                  const slotIndex = constructionSourceIndexes.get(sourceKey);
+                  const isConstructed =
+                    slotIndex !== undefined &&
+                    visibleConstructedSlots.has(slotIndex);
+                  const isCurrentSource =
+                    activeConstructionSourceKey === sourceKey;
+                  const isConsumed =
+                    useMovingConstruction &&
+                    slotIndex !== undefined &&
+                    (visibleConstructedSlots.has(slotIndex) || isCurrentSource);
 
-                  {showConstructionArea && claimConstruction ? (
-                    <div className="resolution-construction-slots">
-                      {Array.from({
-                        length: claimConstruction.requiredCount,
-                      }).map((_, slotIndex) => {
-                        const slotId = `slot-${slotIndex + 1}`;
-                        const expectedSlotSpec = expectedSlotSpecs[slotIndex];
-                        const source = constructionSourcesBySlot[slotIndex];
-                        const isFilled =
-                          Boolean(source) &&
-                          visibleConstructedSlots.has(slotIndex);
-                        const isReceiving = source
-                          ? activeConstructionSlotIndex === slotIndex
-                          : false;
-                        const isMissing =
-                          phase === 'resolved' &&
-                          !claimConstruction.isComplete &&
-                          !source;
-
-                        if (source && isFilled) {
-                          return (
-                            <div
-                              key={slotId}
-                              ref={(node) => {
-                                if (node) {
-                                  slotRefs.current.set(slotId, node);
-                                  return;
-                                }
-
-                                slotRefs.current.delete(slotId);
-                              }}
-                              className="resolution-construction-slot is-filled"
-                            >
-                              <ResolutionCardFace card={source.card} />
-                            </div>
-                          );
+                  return (
+                    <ResolutionCard
+                      key={sourceKey}
+                      card={card}
+                      faceUp={isRevealed}
+                      highlighted={isConstructed || isCurrentSource}
+                      current={isCurrentSource}
+                      consumed={isConsumed}
+                      cardRef={(node) => {
+                        if (node) {
+                          sourceCardRefs.current.set(sourceKey, node);
+                          return;
                         }
 
-                        return (
-                          <div
-                            key={slotId}
-                            ref={(node) => {
-                              if (node) {
-                                slotRefs.current.set(slotId, node);
-                                return;
-                              }
+                        sourceCardRefs.current.delete(sourceKey);
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </article>
+          );
+        })}
 
-                              slotRefs.current.delete(slotId);
-                            }}
-                            className={`resolution-construction-slot is-empty ${isReceiving ? 'is-receiving' : ''} ${isMissing ? 'is-missing' : ''}`.trim()}
-                          >
-                            {expectedSlotSpec ? (
-                              <ResolutionPlaceholderCardFace
-                                spec={expectedSlotSpec}
-                                missing={isMissing}
-                              />
-                            ) : (
-                              <span>?</span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <strong className="resolution-center-title">
-                    No claim on the table
-                  </strong>
-                  <p className="claim-helper-text">
-                    The opening player timed out before speaking.
-                  </p>
-                </>
-              )}
-
-              {phase === 'resolved' && overlayTone === 'is-success' ? (
-                <div className="resolution-fireworks" aria-hidden="true">
-                  {FIREWORK_IDS.map((fireworkId, fireworkIndex) => (
-                    <div
-                      key={fireworkId}
-                      className={`resolution-firework resolution-firework-${fireworkIndex + 1}`}
-                    >
-                      {PARTICLE_IDS.map((particleId) => (
-                        <span
-                          key={`${fireworkId}:${particleId}`}
-                          className="resolution-firework-particle"
-                        />
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-
-              {phase === 'resolved' && overlayTone === 'is-failure' ? (
-                <div className="resolution-failure-burst" aria-hidden="true" />
-              ) : null}
-            </section>
+        {movingCard ? (
+          <div className="poker-result-moving-layer" aria-hidden="true">
+            <div
+              key={movingCard.sourceKey}
+              className="poker-result-moving-card"
+              style={
+                {
+                  left: `${movingCard.left}px`,
+                  top: `${movingCard.top}px`,
+                  '--poker-result-move-x': `${movingCard.deltaX}px`,
+                  '--poker-result-move-y': `${movingCard.deltaY}px`,
+                } as CSSProperties
+              }
+            >
+              <ResolutionCardFace card={movingCard.card} />
+            </div>
           </div>
+        ) : null}
+      </div>
+
+      <section
+        className={`poker-result-centerpiece ${phase === 'constructing' ? 'is-constructing' : ''} ${phase === 'resolved' ? 'is-resolved' : ''}`.trim()}
+      >
+        <div className="poker-result-copy">
+          <p className="poker-object-label">{heading.eyebrow}</p>
+          <span className="poker-result-status">{heading.title}</span>
+          {claimUnderReview ? (
+            <strong
+              id="poker-result-title"
+              className="poker-result-center-title"
+            >
+              {claimToCompactLabel(claimUnderReview)}
+            </strong>
+          ) : (
+            <strong
+              id="poker-result-title"
+              className="poker-result-center-title"
+            >
+              No claim on the table
+            </strong>
+          )}
+          <p className="poker-result-detail">{heading.text}</p>
         </div>
 
-        <footer className="resolution-overlay-footer">
-          <div className="resolution-footer-card">
-            <p className="lead">{footerText}</p>
+        {claimUnderReview ? (
+          <div className="poker-result-reference">
+            <ClaimCardStack
+              cards={claimToIllustrationCards(claimUnderReview)}
+              compact
+            />
+            <span className="poker-result-reference-label">
+              {stableResult.kind === 'showdown'
+                ? 'Spoken claim'
+                : 'Last table claim'}
+            </span>
           </div>
-        </footer>
-      </dialog>
+        ) : null}
+
+        {showConstructionArea && claimConstruction ? (
+          <div className="poker-result-construction-slots">
+            {Array.from({
+              length: claimConstruction.requiredCount,
+            }).map((_, slotIndex) => {
+              const slotId = `slot-${slotIndex + 1}`;
+              const expectedSlotSpec = expectedSlotSpecs[slotIndex];
+              const source = constructionSourcesBySlot[slotIndex];
+              const isFilled =
+                Boolean(source) && visibleConstructedSlots.has(slotIndex);
+              const isReceiving = source
+                ? activeConstructionSlotIndex === slotIndex
+                : false;
+              const isMissing =
+                phase === 'resolved' &&
+                !claimConstruction.isComplete &&
+                !source;
+
+              if (source && isFilled) {
+                return (
+                  <div
+                    key={slotId}
+                    ref={(node) => {
+                      if (node) {
+                        slotRefs.current.set(slotId, node);
+                        return;
+                      }
+
+                      slotRefs.current.delete(slotId);
+                    }}
+                    className="poker-result-construction-slot is-filled"
+                  >
+                    <ResolutionCardFace card={source.card} />
+                  </div>
+                );
+              }
+
+              return (
+                <div
+                  key={slotId}
+                  ref={(node) => {
+                    if (node) {
+                      slotRefs.current.set(slotId, node);
+                      return;
+                    }
+
+                    slotRefs.current.delete(slotId);
+                  }}
+                  className={`poker-result-construction-slot is-empty ${isReceiving ? 'is-receiving' : ''} ${isMissing ? 'is-missing' : ''}`.trim()}
+                >
+                  {expectedSlotSpec ? (
+                    <ResolutionPlaceholderCardFace
+                      spec={expectedSlotSpec}
+                      missing={isMissing}
+                    />
+                  ) : (
+                    <span>?</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : stableResult.kind === 'timeout' && claimUnderReview ? (
+          <p className="poker-result-timeout-note">
+            Timeout ends the round without validating the claim.
+          </p>
+        ) : stableResult.kind === 'timeout' ? (
+          <p className="poker-result-timeout-note">
+            The opening player timed out before speaking.
+          </p>
+        ) : null}
+
+        <p className="poker-result-footer">{footerText}</p>
+
+        {phase === 'resolved' && overlayTone === 'is-success' ? (
+          <div className="poker-result-fireworks" aria-hidden="true">
+            {FIREWORK_IDS.map((fireworkId, fireworkIndex) => (
+              <div
+                key={fireworkId}
+                className={`poker-result-firework poker-result-firework-${fireworkIndex + 1}`}
+              >
+                {PARTICLE_IDS.map((particleId) => (
+                  <span
+                    key={`${fireworkId}:${particleId}`}
+                    className="poker-result-firework-particle"
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        {phase === 'resolved' && overlayTone === 'is-failure' ? (
+          <div className="poker-result-failure-burst" aria-hidden="true" />
+        ) : null}
+      </section>
     </div>
   );
 }
