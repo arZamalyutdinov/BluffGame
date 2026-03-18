@@ -762,9 +762,7 @@ export function RoundResolutionOverlay({
               style={buildSeatRevealStyle(seatPosition)}
             >
               {playerRole ? (
-                <span className="poker-result-role-pill">
-                  {playerRole}
-                </span>
+                <span className="poker-result-role-pill">{playerRole}</span>
               ) : null}
 
               <div className="poker-result-seat-hand">
@@ -832,11 +830,17 @@ export function RoundResolutionOverlay({
           <p className="poker-object-label">{heading.eyebrow}</p>
           <span className="poker-result-status">{heading.title}</span>
           {claimUnderReview ? (
-            <strong id="poker-result-title" className="poker-result-center-title">
+            <strong
+              id="poker-result-title"
+              className="poker-result-center-title"
+            >
               {claimToCompactLabel(claimUnderReview)}
             </strong>
           ) : (
-            <strong id="poker-result-title" className="poker-result-center-title">
+            <strong
+              id="poker-result-title"
+              className="poker-result-center-title"
+            >
               No claim on the table
             </strong>
           )}

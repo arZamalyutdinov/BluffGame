@@ -18,19 +18,19 @@ import {
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
 import {
-  type TableSeatSlot,
-  getDesktopOpponentSeatSlots,
-} from '../lib/tableLayout.js';
-import {
   getPlayerInitials,
   getSeatToneClass,
 } from '../lib/playerPresentation.js';
+import {
+  type TableSeatSlot,
+  getDesktopOpponentSeatSlots,
+} from '../lib/tableLayout.js';
 import { ClaimComposer } from './ClaimComposer.js';
 import { ClaimCardStack } from './ClaimPreview.js';
 import {
   BotIcon,
-  ChatIcon,
   CardsIcon,
+  ChatIcon,
   CrownIcon,
   ReadyIcon,
   SeatsIcon,
@@ -58,7 +58,9 @@ interface TableViewProps {
   onSetTablePanelOpen: (open: boolean) => void;
 }
 
-type ClaimHistoryEntry = NonNullable<RoomSnapshot['match']>['claimHistory'][number];
+type ClaimHistoryEntry = NonNullable<
+  RoomSnapshot['match']
+>['claimHistory'][number];
 
 function formatRemainingMs(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -815,23 +817,25 @@ export function TableView({
     className?: string;
   }) {
     const visibleCount = Math.max(1, Math.min(count, 3));
+    const hiddenCardOffsets = Array.from(
+      { length: visibleCount },
+      (_, slotIndex) => slotIndex - (visibleCount - 1) / 2,
+    );
 
     return (
       <div
         className={`poker-hidden-card-fan ${className ?? ''}`.trim()}
         aria-hidden="true"
       >
-        {Array.from({ length: visibleCount }, (_, index) => {
-          const centeredIndex = index - (visibleCount - 1) / 2;
-
+        {hiddenCardOffsets.map((offset) => {
           return (
             <span
-              key={`${count}-${index}`}
+              key={`${count}-${offset}`}
               className="poker-hidden-card"
               style={
                 {
-                  '--poker-hidden-card-offset': `${centeredIndex * 0.72}rem`,
-                  '--poker-hidden-card-rotation': `${centeredIndex * 10}deg`,
+                  '--poker-hidden-card-offset': `${offset * 0.72}rem`,
+                  '--poker-hidden-card-rotation': `${offset * 10}deg`,
                 } as CSSProperties
               }
             />
@@ -1021,7 +1025,8 @@ export function TableView({
 
     const outgoingClaim = claimTransition.outgoingEntry?.claim;
     const outgoingPlayerName = claimTransition.outgoingEntry
-      ? playersById.get(claimTransition.outgoingEntry.playerId)?.name ?? 'Unknown'
+      ? (playersById.get(claimTransition.outgoingEntry.playerId)?.name ??
+        'Unknown')
       : undefined;
     const activeClaim = currentMatch.lastClaim;
 
@@ -1032,7 +1037,9 @@ export function TableView({
       >
         <div className="poker-claim-pot-copy">
           <span className="poker-object-label">{claimPotCopy.label}</span>
-          <strong className="poker-claim-pot-title">{claimPotCopy.title}</strong>
+          <strong className="poker-claim-pot-title">
+            {claimPotCopy.title}
+          </strong>
           <span className="poker-claim-pot-detail">{claimPotCopy.detail}</span>
         </div>
 
@@ -1138,9 +1145,9 @@ export function TableView({
           aria-label="Close claim builder"
         />
 
-        <section
+        <dialog
+          open
           className="poker-claim-popup-shell"
-          role="dialog"
           aria-modal="true"
           aria-label="Claim builder"
         >
@@ -1169,16 +1176,14 @@ export function TableView({
           <ClaimComposer
             claimOrderPreset={snapshot.settings.claimOrderPreset}
             disabled={actionDisabled}
-            {...(currentLastClaim
-              ? { lastClaim: currentLastClaim }
-              : {})}
+            {...(currentLastClaim ? { lastClaim: currentLastClaim } : {})}
             onSelectedClaimChange={setSelectedComposerClaim}
             onSubmit={(claimKey) => {
               closeClaimComposer();
               onSubmitClaim(claimKey);
             }}
           />
-        </section>
+        </dialog>
       </div>
     );
   }
@@ -1253,7 +1258,9 @@ export function TableView({
                   type="button"
                   className="ghost-button poker-table-control-button"
                   onClick={() => onSetPauseState(!isPaused)}
-                  disabled={!isConnected || pendingCommand !== null || isShowingResult}
+                  disabled={
+                    !isConnected || pendingCommand !== null || isShowingResult
+                  }
                 >
                   {isPaused ? 'Resume' : 'Pause'}
                 </button>
@@ -1292,7 +1299,7 @@ export function TableView({
                 <strong>
                   {turnAnnouncement.playerId === snapshot.selfPlayerId
                     ? 'Your move'
-                  : `${playersById.get(turnAnnouncement.playerId)?.name ?? 'Player'} to act`}
+                    : `${playersById.get(turnAnnouncement.playerId)?.name ?? 'Player'} to act`}
                 </strong>
               </div>
             ) : null}

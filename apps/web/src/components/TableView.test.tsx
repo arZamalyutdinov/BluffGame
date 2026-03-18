@@ -360,7 +360,10 @@ describe('TableView match fixtures', () => {
   it('keeps one primary claim-entry control in the live footer', () => {
     const markup = renderTable(buildSnapshot(4));
 
-    expect(markup.match(/Open claim|Build claim|Edit claim|Hide claim/g)?.length ?? 0).toBe(1);
+    expect(
+      markup.match(/Open claim|Build claim|Edit claim|Hide claim/g)?.length ??
+        0,
+    ).toBe(1);
     expect(markup.match(/>Check</g)?.length ?? 0).toBe(1);
     expect(markup).not.toContain('table-selected-claim-pill');
     expect(markup).not.toContain('claim-tray-shell');

@@ -66,7 +66,9 @@ const DESKTOP_OPPONENT_LAYOUTS: Record<number, TableSeatSlot[]> = {
   ],
 };
 
-export function getDesktopOpponentSeatSlots(totalPlayers: number): TableSeatSlot[] {
+export function getDesktopOpponentSeatSlots(
+  totalPlayers: number,
+): TableSeatSlot[] {
   const clampedPlayers = Math.min(Math.max(Math.round(totalPlayers), 2), 8);
   const slots = DESKTOP_OPPONENT_LAYOUTS[clampedPlayers];
 
