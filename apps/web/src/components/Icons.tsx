@@ -79,6 +79,17 @@ export function DoorIcon(props: IconProps) {
   );
 }
 
+export function EmojiIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M8.7 10.1h.01" />
+      <path d="M15.3 10.1h.01" />
+      <path d="M8.5 14.2c.95 1.2 2.12 1.8 3.5 1.8s2.55-.6 3.5-1.8" />
+    </IconBase>
+  );
+}
+
 export function PlayIcon(props: IconProps) {
   return (
     <IconBase {...props}>

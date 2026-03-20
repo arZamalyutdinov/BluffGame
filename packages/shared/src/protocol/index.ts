@@ -1,13 +1,17 @@
 import { z } from 'zod';
 
-import { RANKS, SUITS } from '../cards/index.js';
+import { JOKER_COLORS, RANKS, SUITS } from '../cards/index.js';
 import { CLAIM_CATEGORIES, STRAIGHT_LOW_RANKS } from '../claims/index.js';
+import { appErrorPayloadSchema } from '../errors/index.js';
 import {
   CLAIM_ORDER_PRESETS,
+  FLUSH_RULES,
+  JOKER_RULES,
   MAX_ELIMINATION_HAND_SIZE,
   MAX_TURN_TIME_LIMIT_SECONDS,
   MIN_ELIMINATION_HAND_SIZE,
   MIN_TURN_TIME_LIMIT_SECONDS,
+  SHOWDOWN_DRAW_RULES,
 } from '../settings/index.js';
 import {
   MAX_CHAT_MESSAGE_LENGTH,
@@ -20,6 +24,7 @@ const rankSchema = z
   .int()
   .refine((value) => RANKS.includes(value as (typeof RANKS)[number]));
 const suitSchema = z.enum(SUITS);
+const jokerColorSchema = z.enum(JOKER_COLORS);
 const straightLowRankSchema = z
   .number()
   .int()
@@ -27,10 +32,17 @@ const straightLowRankSchema = z
     STRAIGHT_LOW_RANKS.includes(value as (typeof STRAIGHT_LOW_RANKS)[number]),
   );
 
-export const cardSchema = z.object({
-  rank: rankSchema,
-  suit: suitSchema,
-});
+export const cardSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('standard'),
+    rank: rankSchema,
+    suit: suitSchema,
+  }),
+  z.object({
+    kind: z.literal('joker'),
+    color: jokerColorSchema,
+  }),
+]);
 
 export const claimSchema = z.discriminatedUnion('category', [
   z.object({
@@ -57,6 +69,7 @@ export const claimSchema = z.discriminatedUnion('category', [
   z.object({
     category: z.literal('flush'),
     suit: suitSchema,
+    rank: rankSchema.optional(),
   }),
   z.object({
     category: z.literal('full-house'),
@@ -81,6 +94,9 @@ export const roomSettingsSchema = z.object({
     .min(MIN_ELIMINATION_HAND_SIZE)
     .max(MAX_ELIMINATION_HAND_SIZE),
   claimOrderPreset: z.enum(CLAIM_ORDER_PRESETS),
+  flushRule: z.enum(FLUSH_RULES),
+  showdownDrawRule: z.enum(SHOWDOWN_DRAW_RULES),
+  jokerRule: z.enum(JOKER_RULES),
   turnTimeLimitSeconds: z
     .number()
     .int()
@@ -128,9 +144,26 @@ export const addBotCommandSchema = z
   .optional()
   .transform(() => ({}));
 
+export const removeBotCommandSchema = z.object({
+  playerId: z.string().min(1),
+});
+
 export const submitClaimCommandSchema = z.object({
   claimKey: z.string().min(1),
 });
+
+export const setSpectatorCardRevealCommandSchema = z.object({
+  enabled: z.boolean(),
+});
+
+export const kickPlayerCommandSchema = z.object({
+  playerId: z.string().min(1),
+});
+
+export const becomeSpectatorCommandSchema = z
+  .object({})
+  .optional()
+  .transform(() => ({}));
 
 export const updateRoomSettingsCommandSchema = roomSettingsSchema;
 
@@ -152,6 +185,12 @@ const revealedHandSchema = z.object({
   cards: z.array(cardSchema),
 });
 
+const spectatorMatchSchema = z.object({
+  isSpectator: z.literal(true),
+  revealCardsEnabled: z.boolean(),
+  revealedHands: z.array(revealedHandSchema).optional(),
+});
+
 const turnTimerSchema = z.object({
   durationSeconds: z
     .number()
@@ -166,6 +205,11 @@ const turnTimerSchema = z.object({
   isPaused: z.boolean(),
   deadlineAtMs: z.number().int().positive().optional(),
   pausedByPlayerId: z.string().min(1).optional(),
+});
+
+const dealingSchema = z.object({
+  startedAtMs: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
 });
 
 const chatMessageSchema = z.object({
@@ -200,6 +244,7 @@ export const roomSnapshotSchema = z.object({
   match: z
     .object({
       phase: z.enum([
+        'dealing',
         'awaiting-opening-claim',
         'awaiting-response',
         'showing-result',
@@ -208,6 +253,7 @@ export const roomSnapshotSchema = z.object({
       roundNumber: z.number().int().min(1),
       starterPlayerId: z.string().min(1),
       currentTurnPlayerId: z.string().min(1),
+      dealing: dealingSchema.optional(),
       turnTimer: turnTimerSchema.optional(),
       lastClaim: claimSchema.optional(),
       claimHistory: z.array(
@@ -218,8 +264,10 @@ export const roomSnapshotSchema = z.object({
         }),
       ),
       yourHand: z.array(cardSchema),
+      spectator: spectatorMatchSchema.optional(),
       showdown: z
         .object({
+          startedAtMs: z.number().int().nonnegative(),
           spokenClaim: claimSchema,
           claimantPlayerId: z.string().min(1),
           challengerPlayerId: z.string().min(1),
@@ -228,11 +276,13 @@ export const roomSnapshotSchema = z.object({
           loserHandSize: z.number().int().min(1).max(MAX_ELIMINATION_HAND_SIZE),
           loserEliminated: z.boolean(),
           revealedHands: z.array(revealedHandSchema),
+          deckDraws: z.array(cardSchema),
           nextStarterPlayerId: z.string().min(1).optional(),
         })
         .optional(),
       timeout: z
         .object({
+          startedAtMs: z.number().int().nonnegative(),
           timedOutPlayerId: z.string().min(1),
           loserHandSize: z.number().int().min(1).max(MAX_ELIMINATION_HAND_SIZE),
           loserEliminated: z.boolean(),
@@ -247,6 +297,5 @@ export const roomSnapshotSchema = z.object({
     .optional(),
 });
 
-export const commandRejectedEventSchema = z.object({
-  message: z.string().min(1),
-});
+export const commandRejectedEventSchema = appErrorPayloadSchema;
+export const apiErrorResponseSchema = appErrorPayloadSchema;

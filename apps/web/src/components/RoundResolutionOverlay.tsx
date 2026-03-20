@@ -1,33 +1,28 @@
-import {
-  type CSSProperties,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { type CSSProperties, useMemo, useRef } from 'react';
 
 import {
   type Card,
   type Claim,
   type PlayerSnapshot,
-  RANK_LABELS,
-  RESOLUTION_CONSTRUCTION_SETTLE_MS,
-  RESOLUTION_CONSTRUCTION_START_DELAY_MS,
-  RESOLUTION_CONSTRUCTION_STEP_MS,
-  RESOLUTION_NO_CONSTRUCTION_SETTLE_MS,
   RESOLUTION_REVEAL_START_DELAY_MS,
   RESOLUTION_REVEAL_STEP_MS,
+  RESOLUTION_SHOWDOWN_DRAW_STEP_MS,
+  RESOLUTION_SHOWDOWN_FINAL_RESOLVE_MS,
+  RESOLUTION_SHOWDOWN_SUSPENSE_DELAY_MS,
+  RESOLUTION_TIMEOUT_FINAL_RESOLVE_MS,
+  type Rank,
   SUIT_SYMBOLS,
   type ShowdownSnapshot,
   type TimeoutSnapshot,
   buildClaimConstruction,
-  claimToCompactLabel,
+  cardToKey,
   sortCardsDescending,
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+import { useLocale } from '../lib/i18n/index.js';
 import { ClaimCardStack } from './ClaimPreview.js';
+import { PokerCardFace } from './PokerCardFace.js';
 
 type ResolutionResult =
   | {
@@ -45,6 +40,7 @@ interface RoundResolutionOverlayProps {
   result: ResolutionResult;
   players: PlayerSnapshot[];
   seatPositions: Record<string, ResolutionSeatPosition>;
+  nowMs: number;
 }
 
 export interface ResolutionSeatPosition {
@@ -59,28 +55,111 @@ export interface ResolutionSeatPosition {
     | 'self';
 }
 
-const FIREWORK_IDS = ['alpha', 'beta', 'gamma'] as const;
-const PARTICLE_IDS = [
-  'north',
-  'north-east',
-  'east',
-  'south-east',
-  'south',
-  'south-west',
-  'west',
-  'north-west',
+const SUCCESS_FIREFLIES = [
+  {
+    leftPct: 12,
+    topPct: 18,
+    driftXPx: 14,
+    driftYPx: -10,
+    durationMs: 1960,
+    delayMs: -340,
+  },
+  {
+    leftPct: 22,
+    topPct: 28,
+    driftXPx: -10,
+    driftYPx: 14,
+    durationMs: 2280,
+    delayMs: -680,
+  },
+  {
+    leftPct: 33,
+    topPct: 14,
+    driftXPx: 12,
+    driftYPx: 10,
+    durationMs: 1880,
+    delayMs: -1260,
+  },
+  {
+    leftPct: 41,
+    topPct: 24,
+    driftXPx: -8,
+    driftYPx: -16,
+    durationMs: 2140,
+    delayMs: -910,
+  },
+  {
+    leftPct: 54,
+    topPct: 12,
+    driftXPx: 8,
+    driftYPx: 12,
+    durationMs: 2400,
+    delayMs: -430,
+  },
+  {
+    leftPct: 67,
+    topPct: 18,
+    driftXPx: -12,
+    driftYPx: 12,
+    durationMs: 2100,
+    delayMs: -1180,
+  },
+  {
+    leftPct: 79,
+    topPct: 30,
+    driftXPx: 10,
+    driftYPx: -14,
+    durationMs: 2320,
+    delayMs: -520,
+  },
+  {
+    leftPct: 86,
+    topPct: 20,
+    driftXPx: -14,
+    driftYPx: 8,
+    durationMs: 2020,
+    delayMs: -1430,
+  },
+  {
+    leftPct: 18,
+    topPct: 54,
+    driftXPx: 10,
+    driftYPx: -12,
+    durationMs: 2210,
+    delayMs: -760,
+  },
+  {
+    leftPct: 34,
+    topPct: 62,
+    driftXPx: -12,
+    driftYPx: 10,
+    durationMs: 1940,
+    delayMs: -1510,
+  },
+  {
+    leftPct: 62,
+    topPct: 58,
+    driftXPx: 14,
+    driftYPx: -8,
+    durationMs: 2360,
+    delayMs: -860,
+  },
+  {
+    leftPct: 80,
+    topPct: 48,
+    driftXPx: -10,
+    driftYPx: 14,
+    durationMs: 2060,
+    delayMs: -1110,
+  },
 ] as const;
+
+const DRAW_CARD_FLIGHT_MS = 520;
+const REVEAL_FLIP_DELAY_MS = 220;
 
 interface DisplayHand {
   playerId: string;
   cards: Card[];
-}
-
-interface ConstructionSource {
-  card: Card;
-  playerId: string;
-  key: string;
-  slotIndex: number;
 }
 
 interface ExpectedSlotSpec {
@@ -88,17 +167,14 @@ interface ExpectedSlotSpec {
   suitSymbol?: string;
 }
 
-interface MovingCardState {
-  sourceKey: string;
+interface ConstructionSource {
   card: Card;
-  left: number;
-  top: number;
-  deltaX: number;
-  deltaY: number;
-}
-
-function buildCardKey(card: Card): string {
-  return `${card.rank}:${card.suit}`;
+  key: string;
+  sourceType: 'seat' | 'deck';
+  playerId?: string;
+  revealIndex?: number;
+  drawIndex?: number;
+  placement: ResolutionSeatPosition['placement'] | undefined;
 }
 
 function rotateHandsForReveal(
@@ -120,120 +196,119 @@ function rotateHandsForReveal(
       .filter((hand): hand is DisplayHand => Boolean(hand));
   }
 
-  const rotatedPlayers = [
+  return [
     ...orderedPlayers.slice(startIndex),
     ...orderedPlayers.slice(0, startIndex),
-  ];
-
-  return rotatedPlayers
+  ]
     .map((player) => handsByPlayerId.get(player.playerId))
     .filter((hand): hand is DisplayHand => Boolean(hand));
 }
 
-function findConstructionSources(
-  hands: DisplayHand[],
-  slotCards: Array<Card | undefined>,
-): Array<ConstructionSource | undefined> {
-  const sourceCards = new Map<string, Omit<ConstructionSource, 'slotIndex'>>();
-
-  for (const hand of hands) {
-    for (const card of hand.cards) {
-      sourceCards.set(buildCardKey(card), {
-        card,
-        playerId: hand.playerId,
-        key: `${hand.playerId}:${card.rank}:${card.suit}`,
-      });
-    }
-  }
-
-  return slotCards.map((card, slotIndex) => {
-    if (!card) {
-      return undefined;
-    }
-
-    const source = sourceCards.get(buildCardKey(card));
-
-    return source
-      ? {
-          ...source,
-          slotIndex,
-        }
-      : undefined;
-  });
-}
-
-function buildStraightRankLabels(lowRank: number): string[] {
+function buildStraightRankLabels(
+  lowRank: number,
+  rankLabels: Record<Rank, string>,
+): string[] {
   if (lowRank === 1) {
-    return ['A', '2', '3', '4', '5'];
+    return [
+      rankLabels[14],
+      rankLabels[2],
+      rankLabels[3],
+      rankLabels[4],
+      rankLabels[5],
+    ];
   }
 
-  return Array.from({ length: 5 }, (_, index) => {
-    const rank = lowRank + index;
-
-    if (rank === 11) {
-      return 'J';
-    }
-
-    if (rank === 12) {
-      return 'Q';
-    }
-
-    if (rank === 13) {
-      return 'K';
-    }
-
-    if (rank === 14) {
-      return 'A';
-    }
-
-    return String(rank);
-  });
+  return Array.from(
+    { length: 5 },
+    (_, index) => rankLabels[(lowRank + index) as Rank],
+  );
 }
 
-function buildExpectedSlotSpecs(claim: Claim): ExpectedSlotSpec[] {
+function buildExpectedSlotSpecs(
+  claim: Claim,
+  formatRankLabel: (rank: Rank) => string,
+): ExpectedSlotSpec[] {
   switch (claim.category) {
     case 'high-card':
-      return [{ rankLabel: RANK_LABELS[claim.rank] }];
+      return [{ rankLabel: formatRankLabel(claim.rank) }];
     case 'pair':
       return Array.from({ length: 2 }, () => ({
-        rankLabel: RANK_LABELS[claim.pairRank],
+        rankLabel: formatRankLabel(claim.pairRank),
       }));
     case 'two-pair':
       return [
         ...Array.from({ length: 2 }, () => ({
-          rankLabel: RANK_LABELS[claim.highPairRank],
+          rankLabel: formatRankLabel(claim.highPairRank),
         })),
         ...Array.from({ length: 2 }, () => ({
-          rankLabel: RANK_LABELS[claim.lowPairRank],
+          rankLabel: formatRankLabel(claim.lowPairRank),
         })),
       ];
     case 'three-of-a-kind':
       return Array.from({ length: 3 }, () => ({
-        rankLabel: RANK_LABELS[claim.tripRank],
+        rankLabel: formatRankLabel(claim.tripRank),
       }));
     case 'straight':
-      return buildStraightRankLabels(claim.lowRank).map((rankLabel) => ({
+      return buildStraightRankLabels(claim.lowRank, {
+        2: formatRankLabel(2),
+        3: formatRankLabel(3),
+        4: formatRankLabel(4),
+        5: formatRankLabel(5),
+        6: formatRankLabel(6),
+        7: formatRankLabel(7),
+        8: formatRankLabel(8),
+        9: formatRankLabel(9),
+        10: formatRankLabel(10),
+        11: formatRankLabel(11),
+        12: formatRankLabel(12),
+        13: formatRankLabel(13),
+        14: formatRankLabel(14),
+      }).map((rankLabel) => ({
         rankLabel,
       }));
     case 'flush':
-      return Array.from({ length: 5 }, () => ({
-        suitSymbol: SUIT_SYMBOLS[claim.suit],
-      }));
+      return claim.rank === undefined
+        ? Array.from({ length: 5 }, () => ({
+            suitSymbol: SUIT_SYMBOLS[claim.suit],
+          }))
+        : [
+            ...Array.from({ length: 4 }, () => ({
+              suitSymbol: SUIT_SYMBOLS[claim.suit],
+            })),
+            {
+              rankLabel: formatRankLabel(claim.rank),
+              suitSymbol: SUIT_SYMBOLS[claim.suit],
+            },
+          ];
     case 'full-house':
       return [
         ...Array.from({ length: 3 }, () => ({
-          rankLabel: RANK_LABELS[claim.tripRank],
+          rankLabel: formatRankLabel(claim.tripRank),
         })),
         ...Array.from({ length: 2 }, () => ({
-          rankLabel: RANK_LABELS[claim.pairRank],
+          rankLabel: formatRankLabel(claim.pairRank),
         })),
       ];
     case 'four-of-a-kind':
       return Array.from({ length: 4 }, () => ({
-        rankLabel: RANK_LABELS[claim.quadRank],
+        rankLabel: formatRankLabel(claim.quadRank),
       }));
     case 'straight-flush':
-      return buildStraightRankLabels(claim.lowRank).map((rankLabel) => ({
+      return buildStraightRankLabels(claim.lowRank, {
+        2: formatRankLabel(2),
+        3: formatRankLabel(3),
+        4: formatRankLabel(4),
+        5: formatRankLabel(5),
+        6: formatRankLabel(6),
+        7: formatRankLabel(7),
+        8: formatRankLabel(8),
+        9: formatRankLabel(9),
+        10: formatRankLabel(10),
+        11: formatRankLabel(11),
+        12: formatRankLabel(12),
+        13: formatRankLabel(13),
+        14: formatRankLabel(14),
+      }).map((rankLabel) => ({
         rankLabel,
         suitSymbol: SUIT_SYMBOLS[claim.suit],
       }));
@@ -243,25 +318,32 @@ function buildExpectedSlotSpecs(claim: Claim): ExpectedSlotSpec[] {
 function buildPlayerRole(
   playerId: string,
   result: ResolutionResult,
+  isResolved: boolean,
+  labels: {
+    lost: string;
+    checked: string;
+    checker: string;
+    timedOut: string;
+  },
 ): string | null {
   if (result.kind === 'showdown') {
     if (playerId === result.data.loserPlayerId) {
-      return 'lost';
+      return isResolved ? labels.lost : null;
     }
 
     if (playerId === result.data.claimantPlayerId) {
-      return 'checked';
+      return labels.checked;
     }
 
     if (playerId === result.data.challengerPlayerId) {
-      return 'checker';
+      return labels.checker;
     }
 
     return null;
   }
 
   if (playerId === result.data.timedOutPlayerId) {
-    return 'timed out';
+    return isResolved ? labels.timedOut : null;
   }
 
   return null;
@@ -276,84 +358,270 @@ function buildSeatRevealStyle(
   } as CSSProperties;
 }
 
-function buildOverlayHeading(
-  result: ResolutionResult,
-  playersById: Map<string, PlayerSnapshot>,
-): { eyebrow: string; title: string; text: string } {
+function getConstructionFlightOrigin(source: ConstructionSource | undefined): {
+  xPx: number;
+  yPx: number;
+} {
+  if (!source) {
+    return { xPx: 0, yPx: 0 };
+  }
+
+  if (source.sourceType === 'deck') {
+    return { xPx: -118, yPx: -148 };
+  }
+
+  switch (source.placement) {
+    case 'top':
+      return { xPx: 0, yPx: -176 };
+    case 'side-left':
+      return { xPx: -210, yPx: -36 };
+    case 'side-right':
+      return { xPx: 210, yPx: -36 };
+    case 'corner-left':
+      return { xPx: -196, yPx: -128 };
+    case 'corner-right':
+      return { xPx: 196, yPx: -128 };
+    case 'self':
+      return { xPx: 0, yPx: 188 };
+    default:
+      return { xPx: 0, yPx: 0 };
+  }
+}
+
+function getConstructionFlightStartMs(input: {
+  source: ConstructionSource | undefined;
+  revealHandCount: number;
+}): number {
+  const { source, revealHandCount } = input;
+
+  if (!source) {
+    return 0;
+  }
+
+  if (source.sourceType === 'deck') {
+    return (
+      RESOLUTION_REVEAL_START_DELAY_MS +
+      revealHandCount * RESOLUTION_REVEAL_STEP_MS +
+      RESOLUTION_SHOWDOWN_SUSPENSE_DELAY_MS +
+      (source.drawIndex ?? 0) * RESOLUTION_SHOWDOWN_DRAW_STEP_MS +
+      140
+    );
+  }
+
+  return (
+    RESOLUTION_REVEAL_START_DELAY_MS +
+    (source.revealIndex ?? 0) * RESOLUTION_REVEAL_STEP_MS +
+    REVEAL_FLIP_DELAY_MS +
+    120
+  );
+}
+
+function buildConstructionArrivalStyle(input: {
+  source: ConstructionSource | undefined;
+  elapsedMs: number;
+  revealHandCount: number;
+}): CSSProperties {
+  const origin = getConstructionFlightOrigin(input.source);
+  const startAtMs = getConstructionFlightStartMs({
+    source: input.source,
+    revealHandCount: input.revealHandCount,
+  });
+
+  return {
+    '--poker-result-slot-origin-x': `${origin.xPx}px`,
+    '--poker-result-slot-origin-y': `${origin.yPx}px`,
+    animationDelay: `${Math.min(0, startAtMs - input.elapsedMs)}ms`,
+  } as CSSProperties;
+}
+
+function buildConstructionSources(input: {
+  slotCards: Array<Card | undefined>;
+  revealHands: DisplayHand[];
+  settledDeckDraws: Card[];
+  seatPositions: Record<string, ResolutionSeatPosition>;
+}): Array<ConstructionSource | undefined> {
+  const seatSourcesByKey = new Map<string, ConstructionSource>();
+  const deckSourcesByKey = new Map<string, ConstructionSource>();
+
+  for (const [revealIndex, hand] of input.revealHands.entries()) {
+    for (const card of hand.cards) {
+      const cardKey = cardToKey(card);
+
+      if (seatSourcesByKey.has(cardKey)) {
+        continue;
+      }
+
+      seatSourcesByKey.set(cardKey, {
+        card,
+        key: `${hand.playerId}:${cardToKey(card)}`,
+        sourceType: 'seat',
+        playerId: hand.playerId,
+        revealIndex,
+        placement: input.seatPositions[hand.playerId]?.placement,
+      });
+    }
+  }
+
+  for (const [drawIndex, card] of input.settledDeckDraws.entries()) {
+    const cardKey = cardToKey(card);
+
+    if (deckSourcesByKey.has(cardKey)) {
+      continue;
+    }
+
+    deckSourcesByKey.set(cardKey, {
+      card,
+      key: `deck:${drawIndex}:${cardToKey(card)}`,
+      sourceType: 'deck',
+      drawIndex,
+      placement: undefined,
+    });
+  }
+
+  return input.slotCards.map((card) => {
+    if (!card) {
+      return undefined;
+    }
+
+    const cardKey = cardToKey(card);
+    return seatSourcesByKey.get(cardKey) ?? deckSourcesByKey.get(cardKey);
+  });
+}
+
+function buildOverlayHeading(input: {
+  result: ResolutionResult;
+  playersById: Map<string, PlayerSnapshot>;
+  isResolved: boolean;
+  unknownPlayerName: string;
+  formatClaimCompactLabel: (claim: Claim) => string;
+  copy: {
+    showdown: string;
+    timeout: string;
+    checkingClaim: string;
+    drawingFromDeck: string;
+    claimFound: string;
+    bluffCaught: string;
+    drawRevealHint: string;
+    verdictWaits: (challenger: string, claimant: string) => string;
+    claimFoundText: (
+      challenger: string,
+      claimant: string,
+      claimLabel: string,
+    ) => string;
+    bluffCaughtText: (
+      challenger: string,
+      claimant: string,
+      claimLabel: string,
+    ) => string;
+    timeoutTitle: (name: string) => string;
+    timeoutWithClaim: (name: string, claimLabel: string) => string;
+    timeoutOpening: string;
+  };
+}): { eyebrow: string; title: string; text: string } {
+  const {
+    result,
+    playersById,
+    isResolved,
+    unknownPlayerName,
+    formatClaimCompactLabel,
+    copy,
+  } = input;
+
   if (result.kind === 'showdown') {
     const claimantName =
-      playersById.get(result.data.claimantPlayerId)?.name ?? 'Unknown';
+      playersById.get(result.data.claimantPlayerId)?.name ?? unknownPlayerName;
     const challengerName =
-      playersById.get(result.data.challengerPlayerId)?.name ?? 'Unknown';
+      playersById.get(result.data.challengerPlayerId)?.name ??
+      unknownPlayerName;
+
+    if (!isResolved) {
+      return {
+        eyebrow: copy.showdown,
+        title:
+          result.data.deckDraws.length > 0
+            ? copy.drawingFromDeck
+            : copy.checkingClaim,
+        text:
+          result.data.deckDraws.length > 0
+            ? copy.drawRevealHint
+            : copy.verdictWaits(challengerName, claimantName),
+      };
+    }
 
     if (result.data.claimWasValid) {
       return {
-        eyebrow: 'Showdown',
-        title: 'Claim found',
-        text: `${challengerName} checked ${claimantName}, but ${claimToCompactLabel(result.data.spokenClaim)} was there.`,
+        eyebrow: copy.showdown,
+        title: copy.claimFound,
+        text: copy.claimFoundText(
+          challengerName,
+          claimantName,
+          formatClaimCompactLabel(result.data.spokenClaim),
+        ),
       };
     }
 
     return {
-      eyebrow: 'Showdown',
-      title: 'Bluff caught',
-      text: `${claimantName} could not build ${claimToCompactLabel(result.data.spokenClaim)} after ${challengerName} checked.`,
+      eyebrow: copy.showdown,
+      title: copy.bluffCaught,
+      text: copy.bluffCaughtText(
+        challengerName,
+        claimantName,
+        formatClaimCompactLabel(result.data.spokenClaim),
+      ),
     };
   }
 
   const timedOutName =
-    playersById.get(result.data.timedOutPlayerId)?.name ?? 'Unknown';
+    playersById.get(result.data.timedOutPlayerId)?.name ?? unknownPlayerName;
 
   return {
-    eyebrow: 'Timeout',
-    title: `${timedOutName} ran out of time`,
+    eyebrow: copy.timeout,
+    title: copy.timeoutTitle(timedOutName),
     text: result.data.lastClaim
-      ? `The round ended before anyone checked ${claimToCompactLabel(result.data.lastClaim)}.`
-      : 'The round ended before the opening claim was made.',
+      ? copy.timeoutWithClaim(
+          timedOutName,
+          formatClaimCompactLabel(result.data.lastClaim),
+        )
+      : copy.timeoutOpening,
   };
 }
 
-function buildOverlayFooterText(
-  result: ResolutionResult,
-  playersById: Map<string, PlayerSnapshot>,
-): string {
+function buildOverlayFooterText(input: {
+  result: ResolutionResult;
+  playersById: Map<string, PlayerSnapshot>;
+  isResolved: boolean;
+  unknownPlayerName: string;
+  copy: {
+    suspenseDeck: string;
+    suspenseResolve: string;
+    loserEliminated: (name: string) => string;
+    loserNextRound: (name: string, handSize: number) => string;
+  };
+}): string {
+  const { result, playersById, isResolved, unknownPlayerName, copy } = input;
+
+  if (result.kind === 'showdown' && !isResolved) {
+    return result.data.deckDraws.length > 0
+      ? copy.suspenseDeck
+      : copy.suspenseResolve;
+  }
+
   const loserName =
     playersById.get(
       result.kind === 'showdown'
         ? result.data.loserPlayerId
         : result.data.timedOutPlayerId,
-    )?.name ?? 'Unknown';
+    )?.name ?? unknownPlayerName;
 
   if (result.data.loserEliminated) {
-    return `${loserName} is eliminated.`;
+    return copy.loserEliminated(loserName);
   }
 
-  return `${loserName} goes to ${result.data.loserHandSize} cards next round.`;
+  return copy.loserNextRound(loserName, result.data.loserHandSize);
 }
 
 function ResolutionCardFace({ card }: { card: Card }) {
-  return (
-    <div
-      className={`claim-visual-card poker-result-card-face-shell suit-${card.suit}`}
-    >
-      <div className="claim-visual-corners">
-        <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
-        <span className="claim-visual-suit">{SUIT_SYMBOLS[card.suit]}</span>
-      </div>
-      <div className="claim-visual-center">
-        <span className="claim-visual-center-suit">
-          {SUIT_SYMBOLS[card.suit]}
-        </span>
-        <span className="claim-visual-center-rank">
-          {RANK_LABELS[card.rank]}
-        </span>
-      </div>
-      <div className="claim-visual-corners claim-visual-corners-bottom">
-        <span className="claim-visual-rank">{RANK_LABELS[card.rank]}</span>
-        <span className="claim-visual-suit">{SUIT_SYMBOLS[card.suit]}</span>
-      </div>
-    </div>
-  );
+  return <PokerCardFace card={card} className="poker-result-card-face-shell" />;
 }
 
 function ResolutionPlaceholderCardFace({
@@ -390,21 +658,14 @@ function ResolutionCard({
   card,
   faceUp,
   highlighted = false,
-  current = false,
-  consumed = false,
-  cardRef,
 }: {
   card: Card;
   faceUp: boolean;
   highlighted?: boolean;
-  current?: boolean;
-  consumed?: boolean;
-  cardRef?: (node: HTMLDivElement | null) => void;
 }) {
   return (
     <div
-      ref={cardRef}
-      className={`poker-result-card ${faceUp ? 'is-face-up' : ''} ${highlighted ? 'is-highlighted' : ''} ${current ? 'is-current' : ''} ${consumed ? 'is-source-consumed' : ''}`.trim()}
+      className={`poker-result-card ${faceUp ? 'is-face-up' : ''} ${highlighted ? 'is-highlighted' : ''}`.trim()}
     >
       <div className="poker-result-card-body">
         <div className="poker-result-card-inner">
@@ -418,35 +679,51 @@ function ResolutionCard({
   );
 }
 
+function countRevealedHands(elapsedMs: number, handCount: number): number {
+  return Array.from({ length: handCount }).filter((_, index) => {
+    const revealAtMs =
+      RESOLUTION_REVEAL_START_DELAY_MS +
+      index * RESOLUTION_REVEAL_STEP_MS +
+      REVEAL_FLIP_DELAY_MS;
+
+    return elapsedMs >= revealAtMs;
+  }).length;
+}
+
+function getActiveRevealPlayerId(
+  elapsedMs: number,
+  revealHands: DisplayHand[],
+): string | null {
+  const activeIndex = revealHands.findIndex((_, index) => {
+    const revealStartAtMs =
+      RESOLUTION_REVEAL_START_DELAY_MS + index * RESOLUTION_REVEAL_STEP_MS;
+
+    return (
+      elapsedMs >= revealStartAtMs &&
+      elapsedMs <
+        revealStartAtMs +
+          Math.min(REVEAL_FLIP_DELAY_MS, RESOLUTION_REVEAL_STEP_MS)
+    );
+  });
+
+  return activeIndex === -1
+    ? null
+    : (revealHands[activeIndex]?.playerId ?? null);
+}
+
 export function RoundResolutionOverlay({
   result,
   players,
   seatPositions,
+  nowMs,
 }: RoundResolutionOverlayProps) {
+  const { catalog, formatClaimCompactLabel, formatRankLabel } = useLocale();
   const frozenResolutionRef = useRef<{
     key: string;
     result: ResolutionResult;
     players: PlayerSnapshot[];
+    startedAtMs: number;
   } | null>(null);
-  const [phase, setPhase] = useState<'revealing' | 'constructing' | 'resolved'>(
-    'revealing',
-  );
-  const [revealedCount, setRevealedCount] = useState(0);
-  const [activeRevealPlayerId, setActiveRevealPlayerId] = useState<
-    string | null
-  >(null);
-  const [constructedSlotIndexes, setConstructedSlotIndexes] = useState<
-    number[]
-  >([]);
-  const [activeConstructionSourceKey, setActiveConstructionSourceKey] =
-    useState<string | null>(null);
-  const [activeConstructionSlotIndex, setActiveConstructionSlotIndex] =
-    useState<number | null>(null);
-  const scheduledTimersRef = useRef<number[]>([]);
-  const stageRef = useRef<HTMLDivElement | null>(null);
-  const sourceCardRefs = useRef(new Map<string, HTMLDivElement>());
-  const slotRefs = useRef(new Map<string, HTMLDivElement>());
-  const [movingCard, setMovingCard] = useState<MovingCardState | null>(null);
 
   if (
     !frozenResolutionRef.current ||
@@ -456,24 +733,34 @@ export function RoundResolutionOverlay({
       key: result.key,
       result,
       players,
+      startedAtMs: result.data.startedAtMs,
     };
   }
 
   const stableResult = frozenResolutionRef.current.result;
   const stablePlayers = frozenResolutionRef.current.players;
+  const startedAtMs = frozenResolutionRef.current.startedAtMs;
+  const elapsedMs = Math.max(0, nowMs - startedAtMs);
+
   const {
     claimConstruction,
     claimUnderReview,
     expectedSlotSpecs,
-    constructionSourceIndexes,
-    constructionSourcesBySlot,
-    presentConstructionSources,
     footerText,
     heading,
+    isResolved,
     overlayTone,
     playersById,
     revealHands,
-    showConstructionArea,
+    revealCount,
+    activeRevealPlayerId,
+    revealedDeckDrawCount,
+    settledDeckDrawCount,
+    activeDeckDrawIndex,
+    displayedConstructionSources,
+    visibleConstruction,
+    visibleConstructionCardKeys,
+    finalConstructionCardKeys,
   } = useMemo(() => {
     const nextPlayersById = new Map(
       stablePlayers.map((player) => [player.playerId, player]),
@@ -494,37 +781,137 @@ export function RoundResolutionOverlay({
       stableResult.kind === 'showdown'
         ? stableResult.data.spokenClaim
         : stableResult.data.lastClaim;
+    const finalPool =
+      stableResult.kind === 'showdown'
+        ? [
+            ...nextRevealHands.flatMap((hand) => hand.cards),
+            ...stableResult.data.deckDraws,
+          ]
+        : nextRevealHands.flatMap((hand) => hand.cards);
     const nextClaimConstruction = nextClaimUnderReview
-      ? buildClaimConstruction(
-          nextRevealHands.flatMap((hand) => hand.cards),
-          nextClaimUnderReview,
-        )
+      ? buildClaimConstruction(finalPool, nextClaimUnderReview)
       : undefined;
-    const nextConstructionSourcesBySlot = nextClaimConstruction
-      ? findConstructionSources(
-          nextRevealHands,
-          nextClaimConstruction.slotCards,
-        )
+    const revealFinishedAtMs =
+      RESOLUTION_REVEAL_START_DELAY_MS +
+      nextRevealHands.length * RESOLUTION_REVEAL_STEP_MS;
+    const showdownResolvedAtMs =
+      revealFinishedAtMs +
+      RESOLUTION_SHOWDOWN_SUSPENSE_DELAY_MS +
+      (stableResult.kind === 'showdown'
+        ? stableResult.data.deckDraws.length * RESOLUTION_SHOWDOWN_DRAW_STEP_MS
+        : 0) +
+      RESOLUTION_SHOWDOWN_FINAL_RESOLVE_MS;
+    const timeoutResolvedAtMs =
+      revealFinishedAtMs + RESOLUTION_TIMEOUT_FINAL_RESOLVE_MS;
+    const nextIsResolved =
+      stableResult.kind === 'showdown'
+        ? elapsedMs >= showdownResolvedAtMs
+        : elapsedMs >= timeoutResolvedAtMs;
+    const drawStartAtMs =
+      revealFinishedAtMs + RESOLUTION_SHOWDOWN_SUSPENSE_DELAY_MS;
+    const nextRevealedDeckDrawCount =
+      stableResult.kind !== 'showdown'
+        ? 0
+        : Array.from({ length: stableResult.data.deckDraws.length }).filter(
+            (_, index) =>
+              elapsedMs >=
+              drawStartAtMs + index * RESOLUTION_SHOWDOWN_DRAW_STEP_MS,
+          ).length;
+    const nextSettledDeckDrawCount =
+      stableResult.kind !== 'showdown'
+        ? 0
+        : Array.from({ length: stableResult.data.deckDraws.length }).filter(
+            (_, index) =>
+              nextIsResolved ||
+              elapsedMs >=
+                drawStartAtMs +
+                  index * RESOLUTION_SHOWDOWN_DRAW_STEP_MS +
+                  DRAW_CARD_FLIGHT_MS,
+          ).length;
+    const nextActiveDeckDrawIndex =
+      stableResult.kind !== 'showdown'
+        ? -1
+        : stableResult.data.deckDraws.findIndex((_, index) => {
+            const drawRevealAtMs =
+              drawStartAtMs + index * RESOLUTION_SHOWDOWN_DRAW_STEP_MS;
+
+            return (
+              elapsedMs >= drawRevealAtMs &&
+              elapsedMs < drawRevealAtMs + DRAW_CARD_FLIGHT_MS
+            );
+          });
+    const visiblePool = [
+      ...nextRevealHands
+        .slice(0, countRevealedHands(elapsedMs, nextRevealHands.length))
+        .flatMap((hand) => hand.cards),
+      ...(stableResult.kind === 'showdown'
+        ? stableResult.data.deckDraws.slice(0, nextSettledDeckDrawCount)
+        : []),
+    ];
+    const nextVisibleConstruction = nextClaimUnderReview
+      ? buildClaimConstruction(visiblePool, nextClaimUnderReview)
+      : undefined;
+    const displayedConstruction = nextIsResolved
+      ? nextClaimConstruction
+      : nextVisibleConstruction;
+    const finalCards = nextClaimConstruction?.cards ?? [];
+    const visibleCards = nextVisibleConstruction?.cards ?? [];
+    const nextDisplayedConstructionSources = displayedConstruction
+      ? buildConstructionSources({
+          slotCards: displayedConstruction.slotCards,
+          revealHands: nextRevealHands.slice(
+            0,
+            countRevealedHands(elapsedMs, nextRevealHands.length),
+          ),
+          settledDeckDraws:
+            stableResult.kind === 'showdown'
+              ? stableResult.data.deckDraws.slice(0, nextSettledDeckDrawCount)
+              : [],
+          seatPositions,
+        })
       : [];
-    const nextPresentConstructionSources = nextConstructionSourcesBySlot.filter(
-      (source): source is ConstructionSource => Boolean(source),
-    );
 
     return {
       claimConstruction: nextClaimConstruction,
       claimUnderReview: nextClaimUnderReview,
       expectedSlotSpecs: nextClaimUnderReview
-        ? buildExpectedSlotSpecs(nextClaimUnderReview)
+        ? buildExpectedSlotSpecs(nextClaimUnderReview, formatRankLabel)
         : [],
-      constructionSourceIndexes: new Map(
-        nextPresentConstructionSources.map(
-          (source) => [source.key, source.slotIndex] as const,
-        ),
-      ),
-      constructionSourcesBySlot: nextConstructionSourcesBySlot,
-      presentConstructionSources: nextPresentConstructionSources,
-      footerText: buildOverlayFooterText(stableResult, nextPlayersById),
-      heading: buildOverlayHeading(stableResult, nextPlayersById),
+      footerText: buildOverlayFooterText({
+        result: stableResult,
+        playersById: nextPlayersById,
+        isResolved: nextIsResolved,
+        unknownPlayerName: catalog.showdown.unknownPlayer,
+        copy: {
+          suspenseDeck: catalog.showdown.suspenseDeck,
+          suspenseResolve: catalog.showdown.suspenseResolve,
+          loserEliminated: catalog.showdown.loserEliminated,
+          loserNextRound: catalog.showdown.loserNextRound,
+        },
+      }),
+      heading: buildOverlayHeading({
+        result: stableResult,
+        playersById: nextPlayersById,
+        isResolved: nextIsResolved,
+        unknownPlayerName: catalog.showdown.unknownPlayer,
+        formatClaimCompactLabel,
+        copy: {
+          showdown: catalog.text.showdown,
+          timeout: catalog.text.timeout,
+          checkingClaim: catalog.text.checkingClaim,
+          drawingFromDeck: catalog.text.drawingFromDeck,
+          claimFound: catalog.text.claimFound,
+          bluffCaught: catalog.text.bluffCaught,
+          drawRevealHint: catalog.showdown.drawRevealHint,
+          verdictWaits: catalog.showdown.verdictWaits,
+          claimFoundText: catalog.showdown.claimFoundText,
+          bluffCaughtText: catalog.showdown.bluffCaughtText,
+          timeoutTitle: catalog.showdown.timeoutTitle,
+          timeoutWithClaim: catalog.showdown.timeoutWithClaim,
+          timeoutOpening: catalog.showdown.timeoutOpening,
+        },
+      }),
+      isResolved: nextIsResolved,
       overlayTone:
         stableResult.kind === 'showdown'
           ? stableResult.data.claimWasValid
@@ -533,210 +920,55 @@ export function RoundResolutionOverlay({
           : 'is-timeout',
       playersById: nextPlayersById,
       revealHands: nextRevealHands,
-      showConstructionArea:
-        stableResult.kind === 'showdown' &&
-        Boolean(nextClaimUnderReview && nextClaimConstruction),
-    };
-  }, [stablePlayers, stableResult]);
-  const visibleConstructedSlots = useMemo(
-    () =>
-      new Set(
-        phase === 'resolved'
-          ? presentConstructionSources.map((source) => source.slotIndex)
-          : constructedSlotIndexes,
+      revealCount: countRevealedHands(elapsedMs, nextRevealHands.length),
+      activeRevealPlayerId: getActiveRevealPlayerId(elapsedMs, nextRevealHands),
+      revealedDeckDrawCount: nextRevealedDeckDrawCount,
+      settledDeckDrawCount: nextSettledDeckDrawCount,
+      activeDeckDrawIndex: nextActiveDeckDrawIndex,
+      displayedConstructionSources: nextDisplayedConstructionSources,
+      visibleConstruction: nextVisibleConstruction,
+      visibleConstructionCardKeys: new Set(
+        visibleCards.map((card) => cardToKey(card)),
       ),
-    [constructedSlotIndexes, phase, presentConstructionSources],
-  );
-  const useMovingConstruction =
-    showConstructionArea && presentConstructionSources.length > 0;
-
-  useLayoutEffect(() => {
-    if (!useMovingConstruction || !activeConstructionSourceKey) {
-      setMovingCard(null);
-      return;
-    }
-
-    const sourceIndex = constructionSourceIndexes.get(
-      activeConstructionSourceKey,
-    );
-    const slotId =
-      sourceIndex === undefined ? undefined : `slot-${sourceIndex + 1}`;
-    const sourceNode = sourceCardRefs.current.get(activeConstructionSourceKey);
-    const slotNode =
-      slotId === undefined ? undefined : slotRefs.current.get(slotId);
-    const stageNode = stageRef.current;
-
-    if (sourceIndex === undefined || !sourceNode || !slotNode || !stageNode) {
-      setMovingCard(null);
-      return;
-    }
-
-    const source = constructionSourcesBySlot[sourceIndex];
-
-    if (!source) {
-      setMovingCard(null);
-      return;
-    }
-
-    const stageRect = stageNode.getBoundingClientRect();
-    const sourceRect = sourceNode.getBoundingClientRect();
-    const slotRect = slotNode.getBoundingClientRect();
-
-    setMovingCard({
-      sourceKey: source.key,
-      card: source.card,
-      left: sourceRect.left - stageRect.left,
-      top: sourceRect.top - stageRect.top,
-      deltaX: slotRect.left - sourceRect.left,
-      deltaY: slotRect.top - sourceRect.top,
-    });
-  }, [
-    activeConstructionSourceKey,
-    constructionSourceIndexes,
-    constructionSourcesBySlot,
-    useMovingConstruction,
-  ]);
-
-  useEffect(() => {
-    if (!movingCard) {
-      return;
-    }
-
-    const timerId = window.setTimeout(() => {
-      setMovingCard((current) =>
-        current?.sourceKey === movingCard.sourceKey ? null : current,
-      );
-    }, 260);
-
-    return () => {
-      window.clearTimeout(timerId);
-    };
-  }, [movingCard]);
-
-  useEffect(() => {
-    for (const timerId of scheduledTimersRef.current) {
-      window.clearTimeout(timerId);
-    }
-
-    scheduledTimersRef.current = [];
-    setPhase('revealing');
-    setRevealedCount(0);
-    setActiveRevealPlayerId(null);
-    setConstructedSlotIndexes([]);
-    setActiveConstructionSourceKey(null);
-    setActiveConstructionSlotIndex(null);
-    setMovingCard(null);
-
-    const revealStartDelayMs = RESOLUTION_REVEAL_START_DELAY_MS;
-    const revealStepMs = RESOLUTION_REVEAL_STEP_MS;
-    const revealFlipDelayMs = 220;
-
-    revealHands.forEach((hand, index) => {
-      scheduledTimersRef.current.push(
-        window.setTimeout(
-          () => {
-            setActiveRevealPlayerId(hand.playerId);
-          },
-          revealStartDelayMs + index * revealStepMs,
-        ),
-      );
-      scheduledTimersRef.current.push(
-        window.setTimeout(
-          () => {
-            setRevealedCount(index + 1);
-          },
-          revealStartDelayMs + index * revealStepMs + revealFlipDelayMs,
-        ),
-      );
-    });
-
-    const revealFinishedAtMs =
-      revealStartDelayMs + revealHands.length * revealStepMs;
-
-    scheduledTimersRef.current.push(
-      window.setTimeout(() => {
-        setActiveRevealPlayerId(null);
-      }, revealFinishedAtMs),
-    );
-
-    if (showConstructionArea && claimConstruction) {
-      const constructStartAtMs =
-        revealFinishedAtMs + RESOLUTION_CONSTRUCTION_START_DELAY_MS;
-      const constructStepMs = RESOLUTION_CONSTRUCTION_STEP_MS;
-      const constructCardDelayMs = 220;
-
-      scheduledTimersRef.current.push(
-        window.setTimeout(() => {
-          setPhase('constructing');
-        }, constructStartAtMs),
-      );
-
-      presentConstructionSources.forEach((source, index) => {
-        scheduledTimersRef.current.push(
-          window.setTimeout(
-            () => {
-              setActiveConstructionSourceKey(source.key);
-              setActiveConstructionSlotIndex(source.slotIndex);
-            },
-            constructStartAtMs + index * constructStepMs,
-          ),
-        );
-        scheduledTimersRef.current.push(
-          window.setTimeout(
-            () => {
-              setConstructedSlotIndexes((current) =>
-                current.includes(source.slotIndex)
-                  ? current
-                  : [...current, source.slotIndex],
-              );
-            },
-            constructStartAtMs + index * constructStepMs + constructCardDelayMs,
-          ),
-        );
-      });
-
-      scheduledTimersRef.current.push(
-        window.setTimeout(
-          () => {
-            setActiveConstructionSourceKey(null);
-            setActiveConstructionSlotIndex(null);
-            setPhase('resolved');
-          },
-          constructStartAtMs +
-            Math.max(presentConstructionSources.length, 1) * constructStepMs +
-            RESOLUTION_CONSTRUCTION_SETTLE_MS,
-        ),
-      );
-
-      return () => {
-        for (const timerId of scheduledTimersRef.current) {
-          window.clearTimeout(timerId);
-        }
-      };
-    }
-
-    scheduledTimersRef.current.push(
-      window.setTimeout(() => {
-        setPhase('resolved');
-      }, revealFinishedAtMs + RESOLUTION_NO_CONSTRUCTION_SETTLE_MS),
-    );
-
-    return () => {
-      for (const timerId of scheduledTimersRef.current) {
-        window.clearTimeout(timerId);
-      }
+      finalConstructionCardKeys: new Set(
+        finalCards.map((card) => cardToKey(card)),
+      ),
     };
   }, [
-    claimConstruction,
-    presentConstructionSources,
-    revealHands,
-    showConstructionArea,
+    catalog.showdown.bluffCaughtText,
+    catalog.showdown.claimFoundText,
+    catalog.showdown.drawRevealHint,
+    catalog.showdown.loserEliminated,
+    catalog.showdown.loserNextRound,
+    catalog.showdown.suspenseDeck,
+    catalog.showdown.suspenseResolve,
+    catalog.showdown.timeoutOpening,
+    catalog.showdown.timeoutTitle,
+    catalog.showdown.timeoutWithClaim,
+    catalog.showdown.unknownPlayer,
+    catalog.showdown.verdictWaits,
+    catalog.text.bluffCaught,
+    catalog.text.checkingClaim,
+    catalog.text.claimFound,
+    catalog.text.drawingFromDeck,
+    catalog.text.showdown,
+    catalog.text.timeout,
+    elapsedMs,
+    formatClaimCompactLabel,
+    formatRankLabel,
+    seatPositions,
+    stablePlayers,
+    stableResult,
   ]);
+
+  const visibleDeckDraws =
+    stableResult.kind === 'showdown'
+      ? stableResult.data.deckDraws.slice(0, settledDeckDrawCount)
+      : [];
 
   return (
     <div
-      ref={stageRef}
-      className={`poker-result-stage ${overlayTone}`.trim()}
+      className={`poker-result-stage ${stableResult.kind === 'timeout' || isResolved ? overlayTone : ''}`.trim()}
       aria-labelledby="poker-result-title"
       aria-live="polite"
     >
@@ -748,17 +980,34 @@ export function RoundResolutionOverlay({
             return null;
           }
 
-          const playerRole = buildPlayerRole(hand.playerId, stableResult);
-          const isRevealed = revealedCount > index;
-          const isRevealing = activeRevealPlayerId === hand.playerId;
-          const isContributing = presentConstructionSources.some(
-            (source) => source.playerId === hand.playerId,
+          const playerRole = buildPlayerRole(
+            hand.playerId,
+            stableResult,
+            isResolved,
+            {
+              lost: catalog.table.lost,
+              checked: catalog.table.checked,
+              checker: catalog.table.checker,
+              timedOut: catalog.table.timedOut,
+            },
           );
+          const isRevealed = revealCount > index;
+          const isRevealing = activeRevealPlayerId === hand.playerId;
+          const isContributing = hand.cards.some((card) =>
+            (isResolved
+              ? finalConstructionCardKeys
+              : visibleConstructionCardKeys
+            ).has(cardToKey(card)),
+          );
+          const isPenaltySeat =
+            stableResult.kind === 'showdown'
+              ? hand.playerId === stableResult.data.loserPlayerId
+              : hand.playerId === stableResult.data.timedOutPlayerId;
 
           return (
             <article
               key={hand.playerId}
-              className={`poker-result-seat-reveal seat-placement-${seatPosition.placement} ${isRevealed ? 'is-revealed' : ''} ${isRevealing ? 'is-revealing' : ''} ${isContributing ? 'is-contributing' : ''}`.trim()}
+              className={`poker-result-seat-reveal seat-placement-${seatPosition.placement} ${isRevealed ? 'is-revealed' : ''} ${isRevealing ? 'is-revealing' : ''} ${isContributing ? 'is-contributing' : ''} ${isPenaltySeat && isResolved ? 'is-penalty-seat' : ''}`.trim()}
               style={buildSeatRevealStyle(seatPosition)}
             >
               {playerRole ? (
@@ -766,85 +1015,34 @@ export function RoundResolutionOverlay({
               ) : null}
 
               <div className="poker-result-seat-hand">
-                {hand.cards.map((card) => {
-                  const sourceKey = `${hand.playerId}:${card.rank}:${card.suit}`;
-                  const slotIndex = constructionSourceIndexes.get(sourceKey);
-                  const isConstructed =
-                    slotIndex !== undefined &&
-                    visibleConstructedSlots.has(slotIndex);
-                  const isCurrentSource =
-                    activeConstructionSourceKey === sourceKey;
-                  const isConsumed =
-                    useMovingConstruction &&
-                    slotIndex !== undefined &&
-                    (visibleConstructedSlots.has(slotIndex) || isCurrentSource);
-
-                  return (
-                    <ResolutionCard
-                      key={sourceKey}
-                      card={card}
-                      faceUp={isRevealed}
-                      highlighted={isConstructed || isCurrentSource}
-                      current={isCurrentSource}
-                      consumed={isConsumed}
-                      cardRef={(node) => {
-                        if (node) {
-                          sourceCardRefs.current.set(sourceKey, node);
-                          return;
-                        }
-
-                        sourceCardRefs.current.delete(sourceKey);
-                      }}
-                    />
-                  );
-                })}
+                {hand.cards.map((card) => (
+                  <ResolutionCard
+                    key={`${hand.playerId}:${cardToKey(card)}`}
+                    card={card}
+                    faceUp={isRevealed}
+                    highlighted={
+                      isResolved &&
+                      finalConstructionCardKeys.has(cardToKey(card))
+                    }
+                  />
+                ))}
               </div>
             </article>
           );
         })}
-
-        {movingCard ? (
-          <div className="poker-result-moving-layer" aria-hidden="true">
-            <div
-              key={movingCard.sourceKey}
-              className="poker-result-moving-card"
-              style={
-                {
-                  left: `${movingCard.left}px`,
-                  top: `${movingCard.top}px`,
-                  '--poker-result-move-x': `${movingCard.deltaX}px`,
-                  '--poker-result-move-y': `${movingCard.deltaY}px`,
-                } as CSSProperties
-              }
-            >
-              <ResolutionCardFace card={movingCard.card} />
-            </div>
-          </div>
-        ) : null}
       </div>
 
       <section
-        className={`poker-result-centerpiece ${phase === 'constructing' ? 'is-constructing' : ''} ${phase === 'resolved' ? 'is-resolved' : ''}`.trim()}
+        className={`poker-result-claim-marker ${isResolved ? 'is-resolved' : 'is-pending'} ${stableResult.kind === 'showdown' && stableResult.data.deckDraws.length > 0 ? 'has-draws' : ''}`.trim()}
       >
         <div className="poker-result-copy">
           <p className="poker-object-label">{heading.eyebrow}</p>
           <span className="poker-result-status">{heading.title}</span>
-          {claimUnderReview ? (
-            <strong
-              id="poker-result-title"
-              className="poker-result-center-title"
-            >
-              {claimToCompactLabel(claimUnderReview)}
-            </strong>
-          ) : (
-            <strong
-              id="poker-result-title"
-              className="poker-result-center-title"
-            >
-              No claim on the table
-            </strong>
-          )}
-          <p className="poker-result-detail">{heading.text}</p>
+          <strong id="poker-result-title" className="poker-result-center-title">
+            {claimUnderReview
+              ? formatClaimCompactLabel(claimUnderReview)
+              : catalog.table.noClaimYet}
+          </strong>
         </div>
 
         {claimUnderReview ? (
@@ -855,61 +1053,92 @@ export function RoundResolutionOverlay({
             />
             <span className="poker-result-reference-label">
               {stableResult.kind === 'showdown'
-                ? 'Spoken claim'
-                : 'Last table claim'}
+                ? catalog.text.spokenClaim
+                : catalog.text.lastTableClaim}
             </span>
           </div>
         ) : null}
 
-        {showConstructionArea && claimConstruction ? (
+        {stableResult.kind === 'showdown' &&
+        stableResult.data.deckDraws.length > 0 ? (
+          <div className="poker-result-deck-draw-lane">
+            <div className="poker-result-deck-source" aria-hidden="true">
+              <span className="poker-result-deck-source-card is-back layer-3" />
+              <span className="poker-result-deck-source-card is-back layer-2" />
+              <span className="poker-result-deck-source-card is-back layer-1" />
+            </div>
+            <span className="poker-result-deck-draw-label">
+              {catalog.text.topDeckReveal}
+            </span>
+            <div className="poker-result-deck-draw-row">
+              {visibleDeckDraws.map((card, index) => (
+                <div
+                  key={`drawn-card-${index + 1}-${cardToKey(card)}`}
+                  className="poker-result-deck-draw-card is-settled"
+                >
+                  <ResolutionCardFace card={card} />
+                </div>
+              ))}
+            </div>
+            {activeDeckDrawIndex !== -1 &&
+            activeDeckDrawIndex < revealedDeckDrawCount ? (
+              <div
+                className="poker-result-deck-draw-flight"
+                style={
+                  {
+                    '--poker-result-draw-slot-index':
+                      String(activeDeckDrawIndex),
+                  } as CSSProperties
+                }
+                aria-hidden="true"
+              >
+                <ResolutionCardFace
+                  card={
+                    stableResult.data.deckDraws[activeDeckDrawIndex] as Card
+                  }
+                />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {stableResult.kind === 'showdown' &&
+        claimUnderReview &&
+        (visibleConstruction || claimConstruction) ? (
           <div className="poker-result-construction-slots">
             {Array.from({
-              length: claimConstruction.requiredCount,
+              length:
+                (isResolved ? claimConstruction : visibleConstruction)
+                  ?.requiredCount ?? 0,
             }).map((_, slotIndex) => {
-              const slotId = `slot-${slotIndex + 1}`;
+              const displayedConstruction = isResolved
+                ? claimConstruction
+                : visibleConstruction;
+              const slotCard = displayedConstruction?.slotCards[slotIndex];
               const expectedSlotSpec = expectedSlotSpecs[slotIndex];
-              const source = constructionSourcesBySlot[slotIndex];
-              const isFilled =
-                Boolean(source) && visibleConstructedSlots.has(slotIndex);
-              const isReceiving = source
-                ? activeConstructionSlotIndex === slotIndex
-                : false;
               const isMissing =
-                phase === 'resolved' &&
-                !claimConstruction.isComplete &&
-                !source;
+                isResolved && !slotCard && !claimConstruction?.isComplete;
 
-              if (source && isFilled) {
+              if (slotCard) {
                 return (
                   <div
-                    key={slotId}
-                    ref={(node) => {
-                      if (node) {
-                        slotRefs.current.set(slotId, node);
-                        return;
-                      }
-
-                      slotRefs.current.delete(slotId);
-                    }}
+                    key={`slot-${slotIndex + 1}`}
                     className="poker-result-construction-slot is-filled"
+                    style={buildConstructionArrivalStyle({
+                      source: displayedConstructionSources[slotIndex],
+                      elapsedMs,
+                      revealHandCount: revealHands.length,
+                    })}
                   >
-                    <ResolutionCardFace card={source.card} />
+                    <ResolutionCardFace card={slotCard} />
                   </div>
                 );
               }
 
               return (
                 <div
-                  key={slotId}
-                  ref={(node) => {
-                    if (node) {
-                      slotRefs.current.set(slotId, node);
-                      return;
-                    }
-
-                    slotRefs.current.delete(slotId);
-                  }}
-                  className={`poker-result-construction-slot is-empty ${isReceiving ? 'is-receiving' : ''} ${isMissing ? 'is-missing' : ''}`.trim()}
+                  key={`slot-${slotIndex + 1}`}
+                  className={`poker-result-construction-slot is-empty ${isMissing ? 'is-missing' : ''}`.trim()}
                 >
                   {expectedSlotSpec ? (
                     <ResolutionPlaceholderCardFace
@@ -925,37 +1154,53 @@ export function RoundResolutionOverlay({
           </div>
         ) : stableResult.kind === 'timeout' && claimUnderReview ? (
           <p className="poker-result-timeout-note">
-            Timeout ends the round without validating the claim.
+            {catalog.showdown.timeoutNoValidation}
           </p>
         ) : stableResult.kind === 'timeout' ? (
           <p className="poker-result-timeout-note">
-            The opening player timed out before speaking.
+            {catalog.showdown.timeoutOpeningNote}
           </p>
-        ) : null}
+        ) : (
+          <div className="poker-result-suspense-shell" aria-hidden="true">
+            <div className="poker-result-suspense-glow" />
+          </div>
+        )}
 
-        <p className="poker-result-footer">{footerText}</p>
-
-        {phase === 'resolved' && overlayTone === 'is-success' ? (
-          <div className="poker-result-fireworks" aria-hidden="true">
-            {FIREWORK_IDS.map((fireworkId, fireworkIndex) => (
-              <div
-                key={fireworkId}
-                className={`poker-result-firework poker-result-firework-${fireworkIndex + 1}`}
-              >
-                {PARTICLE_IDS.map((particleId) => (
-                  <span
-                    key={`${fireworkId}:${particleId}`}
-                    className="poker-result-firework-particle"
-                  />
-                ))}
-              </div>
+        {isResolved && overlayTone === 'is-success' ? (
+          <div className="poker-result-fireflies" aria-hidden="true">
+            {SUCCESS_FIREFLIES.map((firefly, fireflyIndex) => (
+              <span
+                key={`firefly-${fireflyIndex + 1}`}
+                className="poker-result-firefly"
+                style={
+                  {
+                    '--poker-firefly-left': `${firefly.leftPct}%`,
+                    '--poker-firefly-top': `${firefly.topPct}%`,
+                    '--poker-firefly-drift-x': `${firefly.driftXPx}px`,
+                    '--poker-firefly-drift-y': `${firefly.driftYPx}px`,
+                    '--poker-firefly-duration': `${firefly.durationMs}ms`,
+                    '--poker-firefly-delay': `${firefly.delayMs}ms`,
+                  } as CSSProperties
+                }
+              />
             ))}
           </div>
         ) : null}
 
-        {phase === 'resolved' && overlayTone === 'is-failure' ? (
-          <div className="poker-result-failure-burst" aria-hidden="true" />
+        {isResolved && overlayTone === 'is-failure' ? (
+          <>
+            <div className="poker-result-shock-ring" aria-hidden="true" />
+            <div className="poker-result-failure-burst" aria-hidden="true" />
+          </>
         ) : null}
+
+        {(stableResult.kind === 'timeout' || isResolved) &&
+        overlayTone === 'is-timeout' ? (
+          <div className="poker-result-timeout-pulse" aria-hidden="true" />
+        ) : null}
+
+        <p className="poker-result-detail">{heading.text}</p>
+        <p className="poker-result-footer">{footerText}</p>
       </section>
     </div>
   );

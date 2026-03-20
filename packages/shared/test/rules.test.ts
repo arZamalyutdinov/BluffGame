@@ -7,12 +7,22 @@ import {
   claimExists,
   claimToCompactLabel,
   compareClaims,
+  createCard,
+  createJoker,
+  getClaimProgressScore,
+  isClaimStrictlyHigher,
   parseClaimKey,
   resolveShowdown,
 } from '../src/index.js';
 
-function card(rank: Card['rank'], suit: Card['suit']): Card {
-  return { rank, suit };
+function card(
+  rank: number,
+  suit: 'diamonds' | 'clubs' | 'hearts' | 'spades',
+): Card {
+  return createCard(
+    rank as 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14,
+    suit,
+  );
 }
 
 describe('compareClaims', () => {
@@ -46,6 +56,47 @@ describe('compareClaims', () => {
 
     expect(compareClaims(spadesFlush, heartsFlush)).toBeGreaterThan(0);
   });
+
+  it('requires suit-plus-rank flush raises to keep both axes flat or rising', () => {
+    const clubsAceFlush = parseClaimKey('flush:clubs:14');
+    const diamondsKingFlush = parseClaimKey('flush:diamonds:13');
+    const clubsQueenFlush = parseClaimKey('flush:clubs:12');
+    const heartsTwoFlush = parseClaimKey('flush:hearts:2');
+    const clubsTenFlush = parseClaimKey('flush:clubs:10');
+
+    expect(
+      isClaimStrictlyHigher(
+        clubsAceFlush,
+        diamondsKingFlush,
+        'flush-below-straight',
+        'suit-plus-rank',
+      ),
+    ).toBe(true);
+    expect(
+      isClaimStrictlyHigher(
+        clubsAceFlush,
+        clubsQueenFlush,
+        'flush-below-straight',
+        'suit-plus-rank',
+      ),
+    ).toBe(true);
+    expect(
+      isClaimStrictlyHigher(
+        heartsTwoFlush,
+        clubsTenFlush,
+        'flush-below-straight',
+        'suit-plus-rank',
+      ),
+    ).toBe(false);
+    expect(
+      compareClaims(
+        heartsTwoFlush,
+        clubsTenFlush,
+        'flush-below-straight',
+        'suit-plus-rank',
+      ),
+    ).toBe(0);
+  });
 });
 
 describe('claimToCompactLabel', () => {
@@ -59,6 +110,9 @@ describe('claimToCompactLabel', () => {
 
   it('formats suit-based claims with compact suit symbols', () => {
     expect(claimToCompactLabel(parseClaimKey('flush:hearts'))).toBe('♥ flush');
+    expect(claimToCompactLabel(parseClaimKey('flush:hearts:12'))).toBe(
+      '♥ flush + Q',
+    );
     expect(claimToCompactLabel(parseClaimKey('straight-flush:10:spades'))).toBe(
       '10-low ♠ straight flush',
     );
@@ -99,6 +153,21 @@ describe('claimExists', () => {
     expect(claimExists(cards, parseClaimKey('flush:spades'))).toBe(false);
   });
 
+  it('requires the named suited card for suit-plus-rank flush claims', () => {
+    const cards = [
+      card(14, 'hearts'),
+      card(13, 'hearts'),
+      card(12, 'hearts'),
+      card(10, 'hearts'),
+      card(9, 'hearts'),
+      card(8, 'hearts'),
+    ];
+
+    expect(claimExists(cards, parseClaimKey('flush:hearts:12'))).toBe(true);
+    expect(claimExists(cards, parseClaimKey('flush:hearts:11'))).toBe(false);
+    expect(claimExists(cards, parseClaimKey('flush:spades:12'))).toBe(false);
+  });
+
   it('requires the exact suit and low card for straight flush claims', () => {
     const cards = [
       card(9, 'clubs'),
@@ -125,6 +194,37 @@ describe('claimExists', () => {
     expect(claimExists(cards, parseClaimKey('straight-flush:10:hearts'))).toBe(
       false,
     );
+  });
+
+  it('lets jokers complete unsuited rank claims', () => {
+    const cards = [card(12, 'clubs'), createJoker('red')];
+
+    expect(claimExists(cards, parseClaimKey('pair:12'))).toBe(true);
+  });
+
+  it('lets both jokers participate in one exact claim', () => {
+    const cards = [
+      card(9, 'clubs'),
+      card(9, 'hearts'),
+      card(5, 'spades'),
+      createJoker('red'),
+      createJoker('black'),
+    ];
+
+    expect(claimExists(cards, parseClaimKey('full-house:9:5'))).toBe(true);
+  });
+
+  it('rejects a red joker for a black-suit flush target', () => {
+    const cards = [
+      card(14, 'spades'),
+      card(13, 'spades'),
+      card(12, 'spades'),
+      card(11, 'spades'),
+      createJoker('red'),
+    ];
+
+    expect(claimExists(cards, parseClaimKey('flush:spades'))).toBe(false);
+    expect(claimExists(cards, parseClaimKey('flush:hearts'))).toBe(false);
   });
 });
 
@@ -187,6 +287,145 @@ describe('buildClaimConstruction', () => {
       undefined,
     ]);
   });
+
+  it('anchors the named card at the end of suit-plus-rank flush construction', () => {
+    const construction = buildClaimConstruction(
+      [
+        card(14, 'hearts'),
+        card(13, 'hearts'),
+        card(12, 'hearts'),
+        card(10, 'hearts'),
+        card(9, 'hearts'),
+      ],
+      parseClaimKey('flush:hearts:12'),
+    );
+
+    expect(construction.isComplete).toBe(true);
+    expect(construction.slotCards).toEqual([
+      card(14, 'hearts'),
+      card(13, 'hearts'),
+      card(10, 'hearts'),
+      card(9, 'hearts'),
+      card(12, 'hearts'),
+    ]);
+  });
+
+  it('leaves the named flush card slot empty when the suit is present but the card is missing', () => {
+    const construction = buildClaimConstruction(
+      [
+        card(14, 'hearts'),
+        card(13, 'hearts'),
+        card(10, 'hearts'),
+        card(9, 'hearts'),
+        card(8, 'hearts'),
+      ],
+      parseClaimKey('flush:hearts:12'),
+    );
+
+    expect(construction.isComplete).toBe(false);
+    expect(construction.slotCards).toEqual([
+      card(14, 'hearts'),
+      card(13, 'hearts'),
+      card(10, 'hearts'),
+      card(9, 'hearts'),
+      undefined,
+    ]);
+  });
+
+  it('uses a color-valid joker as the named suit-plus-rank flush card', () => {
+    const construction = buildClaimConstruction(
+      [
+        card(14, 'hearts'),
+        card(13, 'hearts'),
+        card(10, 'hearts'),
+        card(9, 'hearts'),
+        createJoker('red'),
+      ],
+      parseClaimKey('flush:hearts:12'),
+    );
+
+    expect(construction.isComplete).toBe(true);
+    expect(construction.slotCards).toEqual([
+      card(14, 'hearts'),
+      card(13, 'hearts'),
+      card(10, 'hearts'),
+      card(9, 'hearts'),
+      createJoker('red'),
+    ]);
+  });
+});
+
+describe('getClaimProgressScore', () => {
+  it('tracks straight progress by exact required ranks', () => {
+    expect(
+      getClaimProgressScore(
+        [card(3, 'clubs'), card(4, 'diamonds'), card(6, 'spades')],
+        parseClaimKey('straight:3'),
+      ),
+    ).toBe(3);
+  });
+
+  it('tracks suit-plus-rank flush progress across filler cards and the named card', () => {
+    expect(
+      getClaimProgressScore(
+        [
+          card(14, 'hearts'),
+          card(13, 'hearts'),
+          card(10, 'hearts'),
+          card(9, 'hearts'),
+        ],
+        parseClaimKey('flush:hearts:12'),
+      ),
+    ).toBe(4);
+    expect(
+      getClaimProgressScore(
+        [
+          card(14, 'hearts'),
+          card(13, 'hearts'),
+          card(12, 'hearts'),
+          card(10, 'hearts'),
+          card(9, 'hearts'),
+        ],
+        parseClaimKey('flush:hearts:12'),
+      ),
+    ).toBe(5);
+  });
+
+  it('tracks grouped claims by the best exact completion size', () => {
+    expect(
+      getClaimProgressScore(
+        [card(9, 'clubs'), card(9, 'hearts'), card(5, 'spades')],
+        parseClaimKey('full-house:9:5'),
+      ),
+    ).toBe(3);
+  });
+
+  it('counts a joker as progress only when it can legally improve a suited claim', () => {
+    expect(
+      getClaimProgressScore(
+        [
+          card(14, 'spades'),
+          card(13, 'spades'),
+          card(12, 'spades'),
+          card(11, 'spades'),
+          createJoker('black'),
+        ],
+        parseClaimKey('flush:spades'),
+      ),
+    ).toBe(5);
+    expect(
+      getClaimProgressScore(
+        [
+          card(14, 'spades'),
+          card(13, 'spades'),
+          card(12, 'spades'),
+          card(11, 'spades'),
+          createJoker('red'),
+        ],
+        parseClaimKey('flush:spades'),
+      ),
+    ).toBe(4);
+  });
 });
 
 describe('resolveShowdown', () => {
@@ -208,6 +447,7 @@ describe('resolveShowdown', () => {
 
     expect(result.claimWasValid).toBe(false);
     expect(result.loserPlayerId).toBe('alpha');
+    expect(result.deckDraws).toEqual([]);
     expect(
       result.updatedPlayers.find((player) => player.playerId === 'alpha')
         ?.handSize,
@@ -232,6 +472,7 @@ describe('resolveShowdown', () => {
 
     expect(result.claimWasValid).toBe(false);
     expect(result.loserPlayerId).toBe('alpha');
+    expect(result.deckDraws).toEqual([]);
 
     const alpha = result.updatedPlayers.find(
       (player) => player.playerId === 'alpha',
@@ -257,6 +498,74 @@ describe('resolveShowdown', () => {
 
     expect(result.loserPlayerId).toBe('alpha');
     expect(result.loserEliminated).toBe(true);
+  });
+
+  it('can complete a checked claim by drawing from the undealt deck until the claim finishes', () => {
+    const result = resolveShowdown({
+      claim: parseClaimKey('pair:14'),
+      claimantPlayerId: 'alpha',
+      challengerPlayerId: 'beta',
+      handsByPlayerId: {
+        alpha: [card(14, 'hearts')],
+        beta: [card(7, 'clubs')],
+      },
+      players: [
+        { playerId: 'alpha', seatIndex: 0, handSize: 1, isEliminated: false },
+        { playerId: 'beta', seatIndex: 1, handSize: 1, isEliminated: false },
+      ],
+      eliminationHandSize: 5,
+      remainingDeck: [card(14, 'spades'), card(2, 'diamonds')],
+      showdownDrawRule: 'draw-until-miss',
+    });
+
+    expect(result.claimWasValid).toBe(true);
+    expect(result.loserPlayerId).toBe('beta');
+    expect(result.deckDraws).toEqual([card(14, 'spades')]);
+  });
+
+  it('stops at the first dead draw and penalizes the claimant', () => {
+    const result = resolveShowdown({
+      claim: parseClaimKey('pair:14'),
+      claimantPlayerId: 'alpha',
+      challengerPlayerId: 'beta',
+      handsByPlayerId: {
+        alpha: [card(14, 'hearts')],
+        beta: [card(7, 'clubs')],
+      },
+      players: [
+        { playerId: 'alpha', seatIndex: 0, handSize: 1, isEliminated: false },
+        { playerId: 'beta', seatIndex: 1, handSize: 1, isEliminated: false },
+      ],
+      eliminationHandSize: 5,
+      remainingDeck: [card(2, 'diamonds'), card(14, 'spades')],
+      showdownDrawRule: 'draw-until-miss',
+    });
+
+    expect(result.claimWasValid).toBe(false);
+    expect(result.loserPlayerId).toBe('alpha');
+    expect(result.deckDraws).toEqual([card(2, 'diamonds')]);
+  });
+
+  it('treats a joker draw as an improving top-deck reveal when it advances the claim', () => {
+    const result = resolveShowdown({
+      claim: parseClaimKey('pair:14'),
+      claimantPlayerId: 'alpha',
+      challengerPlayerId: 'beta',
+      handsByPlayerId: {
+        alpha: [card(14, 'hearts')],
+        beta: [card(7, 'clubs')],
+      },
+      players: [
+        { playerId: 'alpha', seatIndex: 0, handSize: 1, isEliminated: false },
+        { playerId: 'beta', seatIndex: 1, handSize: 1, isEliminated: false },
+      ],
+      eliminationHandSize: 5,
+      remainingDeck: [createJoker('red'), card(2, 'diamonds')],
+      showdownDrawRule: 'draw-until-miss',
+    });
+
+    expect(result.claimWasValid).toBe(true);
+    expect(result.deckDraws).toEqual([createJoker('red')]);
   });
 });
 

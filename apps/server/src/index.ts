@@ -9,13 +9,19 @@ import { Server, type Socket } from 'socket.io';
 
 import {
   addBotCommandSchema,
+  apiErrorResponseSchema,
+  becomeSpectatorCommandSchema,
   commandRejectedEventSchema,
   createRoomRequestSchema,
+  getDefaultAppErrorMessage,
   joinRoomRequestSchema,
+  kickPlayerCommandSchema,
+  removeBotCommandSchema,
   roomSnapshotSchema,
   sendChatMessageCommandSchema,
   setMatchPausedCommandSchema,
   setReadyCommandSchema,
+  setSpectatorCardRevealCommandSchema,
   socketAuthSchema,
   submitClaimCommandSchema,
   updateRoomSettingsCommandSchema,
@@ -86,7 +92,12 @@ if (HAS_BUILT_WEB) {
     );
 
     if (!filePath) {
-      return reply.code(404).send({ message: 'File not found.' });
+      return reply.code(404).send(
+        apiErrorResponseSchema.parse({
+          code: 'invalid-request',
+          message: 'File not found.',
+        }),
+      );
     }
 
     try {
@@ -96,7 +107,12 @@ if (HAS_BUILT_WEB) {
         .type(getContentType(filePath))
         .send(file);
     } catch {
-      return reply.code(404).send({ message: 'File not found.' });
+      return reply.code(404).send(
+        apiErrorResponseSchema.parse({
+          code: 'invalid-request',
+          message: 'File not found.',
+        }),
+      );
     }
   });
 
@@ -106,7 +122,12 @@ if (HAS_BUILT_WEB) {
     );
 
     if (!assetPath) {
-      return reply.code(404).send({ message: 'Asset not found.' });
+      return reply.code(404).send(
+        apiErrorResponseSchema.parse({
+          code: 'invalid-request',
+          message: 'Asset not found.',
+        }),
+      );
     }
 
     try {
@@ -116,7 +137,12 @@ if (HAS_BUILT_WEB) {
         .type(getContentType(assetPath))
         .send(asset);
     } catch {
-      return reply.code(404).send({ message: 'Asset not found.' });
+      return reply.code(404).send(
+        apiErrorResponseSchema.parse({
+          code: 'invalid-request',
+          message: 'Asset not found.',
+        }),
+      );
     }
   });
 
@@ -178,6 +204,17 @@ io.on('connection', async (socket) => {
     });
   });
 
+  socket.on('removeBot', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      const command = removeBotCommandSchema.parse(payload);
+      await registry.removeBot(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
+        command.playerId,
+      );
+    });
+  });
+
   socket.on('updateRoomSettings', async (payload) => {
     await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
       const command = updateRoomSettingsCommandSchema.parse(payload);
@@ -213,6 +250,38 @@ io.on('connection', async (socket) => {
         auth.roomCode.toUpperCase(),
         auth.playerId,
         command.paused,
+      );
+    });
+  });
+
+  socket.on('setSpectatorCardReveal', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      const command = setSpectatorCardRevealCommandSchema.parse(payload);
+      await registry.setSpectatorCardReveal(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
+        command.enabled,
+      );
+    });
+  });
+
+  socket.on('kickPlayer', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      const command = kickPlayerCommandSchema.parse(payload);
+      await registry.kickPlayerToSpectator(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
+        command.playerId,
+      );
+    });
+  });
+
+  socket.on('becomeSpectator', async (payload) => {
+    await handleSocketCommand(socket, auth.roomCode.toUpperCase(), async () => {
+      becomeSpectatorCommandSchema.parse(payload);
+      await registry.becomeSpectator(
+        auth.roomCode.toUpperCase(),
+        auth.playerId,
       );
     });
   });
@@ -272,9 +341,12 @@ function broadcastRoom(roomCode: string) {
 
 async function sendBuiltWebIndex(reply: FastifyReply) {
   if (!existsSync(WEB_DIST_INDEX)) {
-    return reply
-      .code(503)
-      .send({ message: 'Built web client is unavailable.' });
+    return reply.code(503).send(
+      apiErrorResponseSchema.parse({
+        code: 'server-unavailable',
+        message: 'Built web client is unavailable.',
+      }),
+    );
   }
 
   const builtWebIndex = await readFile(WEB_DIST_INDEX, 'utf8');
@@ -359,31 +431,56 @@ async function handleSocketCommand(
     await action();
     broadcastRoom(roomCode);
   } catch (error) {
+    broadcastRoom(roomCode);
     emitCommandRejected(socket, error);
   }
 }
 
 function emitCommandRejected(socket: Socket, error: unknown) {
-  const message =
-    error instanceof Error
-      ? error.message
-      : 'The command could not be processed.';
   socket.emit(
     'commandRejected',
-    commandRejectedEventSchema.parse({
-      message,
-    }),
+    commandRejectedEventSchema.parse(
+      error instanceof CommandError
+        ? {
+            code: error.code,
+            message: error.message,
+          }
+        : error instanceof Error
+          ? {
+              code: 'command-rejected',
+              message: error.message,
+            }
+          : {
+              code: 'command-rejected',
+              message: getDefaultAppErrorMessage('command-rejected'),
+            },
+    ),
   );
 }
 
 function sendHttpError(reply: FastifyReply, error: unknown) {
   if (error instanceof CommandError) {
-    return reply.code(error.statusCode).send({ message: error.message });
+    return reply.code(error.statusCode).send(
+      apiErrorResponseSchema.parse({
+        code: error.code,
+        message: error.message,
+      }),
+    );
   }
 
   if (error instanceof Error) {
-    return reply.code(400).send({ message: error.message });
+    return reply.code(400).send(
+      apiErrorResponseSchema.parse({
+        code: 'invalid-request',
+        message: error.message,
+      }),
+    );
   }
 
-  return reply.code(500).send({ message: 'Unexpected server error.' });
+  return reply.code(500).send(
+    apiErrorResponseSchema.parse({
+      code: 'unexpected-server-error',
+      message: getDefaultAppErrorMessage('unexpected-server-error'),
+    }),
+  );
 }

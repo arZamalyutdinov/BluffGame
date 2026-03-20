@@ -1,8 +1,20 @@
-import { type FormEvent, useEffect, useRef, useState } from 'react';
+import type {
+  EmojiClickData,
+  Props as EmojiPickerProps,
+} from 'emoji-picker-react';
+import russianEmojiData from 'emoji-picker-react/dist/data/emojis-ru';
+import {
+  type ComponentType,
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import { MAX_CHAT_MESSAGE_LENGTH, type RoomSnapshot } from '@bluff-game/shared';
 
-import { ChatIcon, SendIcon, SignalIcon } from './Icons.js';
+import { useLocale } from '../lib/i18n/index.js';
+import { ChatIcon, EmojiIcon, SendIcon, SignalIcon } from './Icons.js';
 
 interface RoomChatProps {
   messages: RoomSnapshot['chatMessages'];
@@ -14,13 +26,6 @@ interface RoomChatProps {
   onSendMessage: (text: string) => void;
 }
 
-function formatSentAt(sentAtMs: number): string {
-  return new Date(sentAtMs).toLocaleTimeString([], {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
 export function RoomChat({
   messages,
   selfPlayerId,
@@ -30,9 +35,16 @@ export function RoomChat({
   hideHeader = false,
   onSendMessage,
 }: RoomChatProps) {
+  const { catalog, formatChatTime, locale, t } = useLocale();
   const [draft, setDraft] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [EmojiPickerComponent, setEmojiPickerComponent] =
+    useState<ComponentType<EmojiPickerProps> | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const latestMessageId = messages.at(-1)?.messageId;
+  const pickerEmojiData = locale === 'ru' ? russianEmojiData : null;
 
   useEffect(() => {
     if (messages.length === 0) {
@@ -47,6 +59,68 @@ export function RoomChat({
 
     log.scrollTop = log.scrollHeight;
   }, [messages.length]);
+
+  useEffect(() => {
+    if (!pickerOpen || EmojiPickerComponent) {
+      return;
+    }
+
+    let isActive = true;
+
+    void import('emoji-picker-react').then((module) => {
+      if (isActive) {
+        setEmojiPickerComponent(() => module.default);
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [pickerOpen, EmojiPickerComponent]);
+
+  useEffect(() => {
+    if (!pickerOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      if (!pickerRef.current?.contains(event.target as Node)) {
+        setPickerOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+    };
+  }, [pickerOpen]);
+
+  useEffect(() => {
+    if (disabled) {
+      setPickerOpen(false);
+    }
+  }, [disabled]);
+
+  function insertTextAtCursor(insertedText: string) {
+    const input = inputRef.current;
+    const selectionStart = input?.selectionStart ?? draft.length;
+    const selectionEnd = input?.selectionEnd ?? draft.length;
+    const nextDraft =
+      draft.slice(0, selectionStart) + insertedText + draft.slice(selectionEnd);
+    const nextCaret = selectionStart + insertedText.length;
+
+    setDraft(nextDraft);
+
+    requestAnimationFrame(() => {
+      input?.focus();
+      input?.setSelectionRange(nextCaret, nextCaret);
+    });
+  }
+
+  function handleEmojiClick(emojiData: EmojiClickData) {
+    insertTextAtCursor(emojiData.emoji);
+  }
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -67,19 +141,19 @@ export function RoomChat({
         <div className="side-panel-header">
           <div className="panel-title-with-icon">
             <ChatIcon className="status-icon" />
-            <h2>Room chat</h2>
+            <h2>{t('roomChat')}</h2>
           </div>
 
           <span className={isConnected ? 'pill connected' : 'pill idle'}>
             <SignalIcon className="status-icon" />
-            {isConnected ? 'connected' : 'offline'}
+            {isConnected ? t('connected') : t('offline')}
           </span>
         </div>
       ) : null}
 
       <div ref={logRef} className="chat-log" aria-live="polite">
         {messages.length === 0 ? (
-          <div className="chat-empty">No messages yet.</div>
+          <div className="chat-empty">{t('noMessagesYet')}</div>
         ) : (
           messages.map((message) => {
             const isSelf = message.playerId === selfPlayerId;
@@ -90,8 +164,8 @@ export function RoomChat({
                 className={`chat-message ${isSelf ? 'is-self' : ''} ${message.messageId === latestMessageId ? 'is-latest' : ''}`}
               >
                 <div className="chat-message-header">
-                  <strong>{isSelf ? 'You' : message.playerName}</strong>
-                  <span>{formatSentAt(message.sentAtMs)}</span>
+                  <strong>{isSelf ? t('you') : message.playerName}</strong>
+                  <span>{formatChatTime(message.sentAtMs)}</span>
                 </div>
                 <p className="chat-message-body">{message.text}</p>
               </article>
@@ -102,25 +176,76 @@ export function RoomChat({
 
       <form className="chat-form" onSubmit={handleSubmit}>
         <label className="field-label">
-          Message
+          {t('message')}
           <input
+            ref={inputRef}
             className="text-input chat-input"
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Say something to the room"
+            placeholder={catalog.chat.placeholder}
             maxLength={MAX_CHAT_MESSAGE_LENGTH}
             disabled={disabled}
           />
         </label>
 
-        <button
-          type="submit"
-          className="secondary-button chat-send-button"
-          disabled={disabled || !draft.trim()}
-        >
-          <SendIcon className="button-icon" />
-          {pendingCommand === 'sendChatMessage' ? 'Sending...' : 'Send'}
-        </button>
+        <div className="chat-form-actions">
+          <div ref={pickerRef} className="chat-emoji-shell">
+            <button
+              type="button"
+              className="secondary-button chat-emoji-button"
+              aria-label={
+                pickerOpen
+                  ? catalog.chat.closeEmojiPicker
+                  : catalog.chat.openEmojiPicker
+              }
+              title={
+                pickerOpen
+                  ? catalog.chat.closeEmojiPicker
+                  : catalog.chat.openEmojiPicker
+              }
+              aria-expanded={pickerOpen}
+              onClick={() => setPickerOpen((current) => !current)}
+              disabled={disabled}
+            >
+              <EmojiIcon className="button-icon" />
+            </button>
+
+            {pickerOpen ? (
+              <div className="chat-emoji-popover">
+                {EmojiPickerComponent ? (
+                  <EmojiPickerComponent
+                    theme={'dark' as NonNullable<EmojiPickerProps['theme']>}
+                    emojiStyle={
+                      'native' as NonNullable<EmojiPickerProps['emojiStyle']>
+                    }
+                    lazyLoadEmojis
+                    searchPlaceholder={catalog.chat.searchPlaceholder}
+                    searchClearButtonLabel={catalog.chat.searchClearButtonLabel}
+                    previewConfig={{
+                      showPreview: true,
+                      defaultCaption: catalog.chat.previewCaption,
+                    }}
+                    {...(pickerEmojiData ? { emojiData: pickerEmojiData } : {})}
+                    onEmojiClick={handleEmojiClick}
+                  />
+                ) : (
+                  <div className="chat-emoji-loading">
+                    {catalog.chat.loadingPicker}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <button
+            type="submit"
+            className="secondary-button chat-send-button"
+            disabled={disabled || !draft.trim()}
+          >
+            <SendIcon className="button-icon" />
+            {pendingCommand === 'sendChatMessage' ? t('sending') : t('send')}
+          </button>
+        </div>
       </form>
     </section>
   );

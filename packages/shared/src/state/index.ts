@@ -5,6 +5,7 @@ import type { RoomSettings } from '../settings/index.js';
 export type ConnectionStatus = 'connected' | 'disconnected';
 export type RoomPhase = 'lobby' | 'in-match' | 'match-complete';
 export type MatchPhase =
+  | 'dealing'
   | 'awaiting-opening-claim'
   | 'awaiting-response'
   | 'showing-result'
@@ -38,6 +39,7 @@ export interface RevealedHandSnapshot {
 }
 
 export interface ShowdownSnapshot {
+  startedAtMs: number;
   spokenClaim: Claim;
   claimantPlayerId: string;
   challengerPlayerId: string;
@@ -46,10 +48,12 @@ export interface ShowdownSnapshot {
   loserHandSize: number;
   loserEliminated: boolean;
   revealedHands: RevealedHandSnapshot[];
+  deckDraws: Card[];
   nextStarterPlayerId?: string;
 }
 
 export interface TimeoutSnapshot {
+  startedAtMs: number;
   timedOutPlayerId: string;
   loserHandSize: number;
   loserEliminated: boolean;
@@ -59,12 +63,23 @@ export interface TimeoutSnapshot {
   nextStarterPlayerId?: string;
 }
 
+export interface SpectatorMatchSnapshot {
+  isSpectator: true;
+  revealCardsEnabled: boolean;
+  revealedHands?: RevealedHandSnapshot[];
+}
+
 export interface TurnTimerSnapshot {
   durationSeconds: number;
   remainingMs: number;
   isPaused: boolean;
   deadlineAtMs?: number;
   pausedByPlayerId?: string;
+}
+
+export interface DealingSnapshot {
+  startedAtMs: number;
+  durationMs: number;
 }
 
 export interface RoomChatMessageSnapshot {
@@ -80,10 +95,12 @@ export interface MatchSnapshot {
   roundNumber: number;
   starterPlayerId: string;
   currentTurnPlayerId: string;
+  dealing?: DealingSnapshot;
   turnTimer?: TurnTimerSnapshot;
   lastClaim?: Claim;
   claimHistory: ClaimRecordSnapshot[];
   yourHand: Card[];
+  spectator?: SpectatorMatchSnapshot;
   showdown?: ShowdownSnapshot;
   timeout?: TimeoutSnapshot;
   winnerPlayerId?: string;
@@ -105,4 +122,26 @@ export interface RoomSession {
   playerId: string;
   sessionToken: string;
   displayName: string;
+}
+
+export function getNextActiveSeatIndex<
+  T extends { seatIndex: number; isEliminated: boolean },
+>(players: T[], currentSeatIndex: number): number {
+  const activePlayers = [...players]
+    .filter((player) => !player.isEliminated)
+    .sort((left, right) => left.seatIndex - right.seatIndex);
+
+  if (activePlayers.length === 0) {
+    throw new Error('No active players remain to choose the next seat.');
+  }
+
+  const clockwisePlayer = activePlayers.find(
+    (player) => player.seatIndex > currentSeatIndex,
+  );
+
+  return (
+    clockwisePlayer?.seatIndex ??
+    activePlayers[0]?.seatIndex ??
+    currentSeatIndex
+  );
 }

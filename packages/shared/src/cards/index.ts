@@ -1,3 +1,5 @@
+import { DEFAULT_JOKER_RULE, type JokerRule } from '../settings/index.js';
+
 export const SUITS = ['diamonds', 'clubs', 'hearts', 'spades'] as const;
 
 export type Suit = (typeof SUITS)[number];
@@ -6,10 +8,22 @@ export const RANKS = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] as const;
 
 export type Rank = (typeof RANKS)[number];
 
-export interface Card {
+export const JOKER_COLORS = ['red', 'black'] as const;
+
+export type JokerColor = (typeof JOKER_COLORS)[number];
+
+export interface StandardCard {
+  kind: 'standard';
   rank: Rank;
   suit: Suit;
 }
+
+export interface JokerCard {
+  kind: 'joker';
+  color: JokerColor;
+}
+
+export type Card = StandardCard | JokerCard;
 
 export const RANK_LABELS: Record<Rank, string> = {
   2: '2',
@@ -34,8 +48,82 @@ export const SUIT_SYMBOLS: Record<Suit, string> = {
   spades: '♠',
 };
 
-export function createDeck(): Card[] {
-  return SUITS.flatMap((suit) => RANKS.map((rank) => ({ rank, suit })));
+export function createCard(rank: Rank, suit: Suit): StandardCard {
+  return {
+    kind: 'standard',
+    rank,
+    suit,
+  };
+}
+
+export function createJoker(color: JokerColor): JokerCard {
+  return {
+    kind: 'joker',
+    color,
+  };
+}
+
+export function isStandardCard(card: Card): card is StandardCard {
+  return card.kind === 'standard';
+}
+
+export function isJokerCard(card: Card): card is JokerCard {
+  return card.kind === 'joker';
+}
+
+export function canJokerRepresentSuit(
+  joker: JokerCard | JokerColor,
+  suit: Suit,
+): boolean {
+  const color = typeof joker === 'string' ? joker : joker.color;
+
+  return color === 'red'
+    ? suit === 'diamonds' || suit === 'hearts'
+    : suit === 'clubs' || suit === 'spades';
+}
+
+export function getCardTone(card: Card): JokerColor {
+  if (isJokerCard(card)) {
+    return card.color;
+  }
+
+  return card.suit === 'diamonds' || card.suit === 'hearts' ? 'red' : 'black';
+}
+
+export function getCardRankLabel(card: Card): string {
+  if (isJokerCard(card)) {
+    return card.color === 'red' ? 'RJ' : 'BJ';
+  }
+
+  return RANK_LABELS[card.rank];
+}
+
+export function getCardSuitSymbol(card: Card): string {
+  if (isJokerCard(card)) {
+    return '✦';
+  }
+
+  return SUIT_SYMBOLS[card.suit];
+}
+
+export function getCardCenterLabel(card: Card): string {
+  if (isJokerCard(card)) {
+    return 'JOKER';
+  }
+
+  return RANK_LABELS[card.rank];
+}
+
+export function createDeck(jokerRule: JokerRule = DEFAULT_JOKER_RULE): Card[] {
+  const deck: Card[] = SUITS.flatMap((suit) =>
+    RANKS.map((rank) => createCard(rank, suit)),
+  );
+
+  if (jokerRule === 'two-jokers') {
+    deck.push(createJoker('red'), createJoker('black'));
+  }
+
+  return deck;
 }
 
 export function shuffleDeck(deck: Card[], random = Math.random): Card[] {
@@ -57,17 +145,33 @@ export function shuffleDeck(deck: Card[], random = Math.random): Card[] {
   return next;
 }
 
-export function sortCardsDescending(cards: Card[]): Card[] {
-  return [...cards].sort((left, right) => {
-    if (left.rank !== right.rank) {
-      return right.rank - left.rank;
-    }
+function getCardSortStrength(card: Card): number {
+  if (isJokerCard(card)) {
+    return card.color === 'red' ? 1_200 : 1_100;
+  }
 
-    return SUITS.indexOf(right.suit) - SUITS.indexOf(left.suit);
-  });
+  return card.rank * 10 + SUITS.indexOf(card.suit);
+}
+
+export function sortCardsDescending(cards: Card[]): Card[] {
+  return [...cards].sort(
+    (left, right) => getCardSortStrength(right) - getCardSortStrength(left),
+  );
+}
+
+export function cardToKey(card: Card): string {
+  if (isJokerCard(card)) {
+    return `joker:${card.color}`;
+  }
+
+  return `standard:${card.rank}:${card.suit}`;
 }
 
 export function cardToShortLabel(card: Card): string {
+  if (isJokerCard(card)) {
+    return getCardRankLabel(card);
+  }
+
   return `${RANK_LABELS[card.rank]}${SUIT_SYMBOLS[card.suit]}`;
 }
 

@@ -33,11 +33,11 @@
 
 ## Phase 4: Visual Refresh
 
-- [ ] Lock the target art direction, table geometry, palette, typography, and icon language in `docs/visual-refresh-plan.md`.
-- [ ] Introduce a shared scene shell, design tokens, and reusable HUD styles across home, lobby, and match screens.
-- [ ] Rebuild the match layout around an oval table scene with anchored seats, clearer player identity, and floating room controls.
-- [ ] Add reusable suit, rank, and status icon assets plus host, bot, ready, active-turn, and eliminated badges.
-- [ ] Add motion for room entry, turn emphasis, claim submission, timer urgency, and result reveals, with reduced-motion fallbacks.
+- [x] Lock the target art direction, table geometry, palette, typography, and icon language in `docs/visual-refresh-plan.md`.
+- [x] Introduce a shared scene shell, design tokens, and reusable HUD styles across home, lobby, and match screens.
+- [x] Rebuild the match layout around an oval table scene with anchored seats, clearer player identity, and floating room controls.
+- [x] Add reusable suit, rank, and status icon assets plus host, bot, ready, active-turn, and eliminated badges.
+- [x] Add motion for room entry, turn emphasis, claim submission, timer urgency, and result reveals, with reduced-motion fallbacks.
 - [ ] Tune the refreshed layout across desktop and mobile, including drawer or sheet behavior for secondary panels.
 
 ## Phase 5: Quality and Hardening

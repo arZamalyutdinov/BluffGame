@@ -8,20 +8,23 @@ import {
 
 import {
   type Claim,
+  DEALING_CARD_FLIGHT_MS,
+  DEALING_START_DELAY_MS,
   type PlayerSnapshot,
   type RoomSnapshot,
-  claimToCompactLabel,
   claimToKey,
-  claimToLabel,
+  getDealingCardStepMs,
   sortCardsDescending,
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+import { useLocale } from '../lib/i18n/index.js';
 import {
   getPlayerInitials,
   getSeatToneClass,
 } from '../lib/playerPresentation.js';
 import {
+  TABLE_DEAL_ORIGIN,
   type TableSeatSlot,
   getDesktopOpponentSeatSlots,
 } from '../lib/tableLayout.js';
@@ -54,6 +57,9 @@ interface TableViewProps {
   onChallengeClaim: () => void;
   onSetPauseState: (paused: boolean) => void;
   onRestartMatch: () => void;
+  onKickPlayer: (playerId: string) => void;
+  onBecomeSpectator: () => void;
+  onSetSpectatorCardReveal: (enabled: boolean) => void;
   onSendChatMessage: (text: string) => void;
   onSetTablePanelOpen: (open: boolean) => void;
 }
@@ -61,6 +67,13 @@ interface TableViewProps {
 type ClaimHistoryEntry = NonNullable<
   RoomSnapshot['match']
 >['claimHistory'][number];
+
+interface DealFlight {
+  playerId: string;
+  cardOrdinal: number;
+  startsAtMs: number;
+  arrivesAtMs: number;
+}
 
 function formatRemainingMs(remainingMs: number): string {
   const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
@@ -98,12 +111,54 @@ function buildTableSeatStyle(slot: TableSeatSlot): CSSProperties {
   } as CSSProperties;
 }
 
+function buildDealingFlights(
+  players: PlayerSnapshot[],
+  starterPlayerId: string,
+): DealFlight[] {
+  const activePlayers = rotatePlayersForTable(
+    players.filter((player) => !player.isEliminated),
+    starterPlayerId,
+  );
+  const totalCardCount = activePlayers.reduce(
+    (count, player) => count + player.cardCount,
+    0,
+  );
+  const stepMs = getDealingCardStepMs(totalCardCount);
+  const maxCardsPerSeat = Math.max(
+    0,
+    ...activePlayers.map((player) => player.cardCount),
+  );
+  const flights: DealFlight[] = [];
+  let flightIndex = 0;
+
+  for (let cardOrdinal = 1; cardOrdinal <= maxCardsPerSeat; cardOrdinal += 1) {
+    for (const player of activePlayers) {
+      if (player.cardCount < cardOrdinal) {
+        continue;
+      }
+
+      const startsAtMs = DEALING_START_DELAY_MS + flightIndex * stepMs;
+
+      flights.push({
+        playerId: player.playerId,
+        cardOrdinal,
+        startsAtMs,
+        arrivesAtMs: startsAtMs + DEALING_CARD_FLIGHT_MS,
+      });
+      flightIndex += 1;
+    }
+  }
+
+  return flights;
+}
+
 interface SeatAnchorCopy {
   roleChipLabel?: string;
   stateChipLabel?: string;
 }
 
 function buildSeatAnchorCopy({
+  labels,
   player,
   isCurrentTurn,
   isLowCards,
@@ -111,6 +166,16 @@ function buildSeatAnchorCopy({
   isSelf,
   isPaused,
 }: {
+  labels: {
+    you: string;
+    bot: string;
+    host: string;
+    out: string;
+    offline: string;
+    acting: string;
+    paused: string;
+    pressure: string;
+  };
   player: PlayerSnapshot;
   isCurrentTurn: boolean;
   isLowCards: boolean;
@@ -119,22 +184,22 @@ function buildSeatAnchorCopy({
   isPaused: boolean;
 }): SeatAnchorCopy {
   const roleChipLabel = isSelf
-    ? 'You'
+    ? labels.you
     : player.isBot
-      ? 'Bot'
+      ? labels.bot
       : player.isHost
-        ? 'Host'
+        ? labels.host
         : undefined;
   const stateChipLabel = player.isEliminated
-    ? 'Out'
+    ? labels.out
     : isDisconnected
-      ? 'Offline'
+      ? labels.offline
       : isCurrentTurn
         ? isPaused
-          ? 'Paused'
-          : 'Acting'
+          ? labels.paused
+          : labels.acting
         : isLowCards
-          ? 'Pressure'
+          ? labels.pressure
           : undefined;
 
   return {
@@ -148,10 +213,12 @@ function buildResolutionKey(match: NonNullable<RoomSnapshot['match']>) {
     return [
       'showdown',
       match.roundNumber,
+      match.showdown.startedAtMs,
       match.showdown.claimantPlayerId,
       match.showdown.challengerPlayerId,
       match.showdown.loserPlayerId,
       match.showdown.claimWasValid ? 'valid' : 'invalid',
+      match.showdown.deckDraws.length,
       claimToKey(match.showdown.spokenClaim),
     ].join(':');
   }
@@ -160,12 +227,64 @@ function buildResolutionKey(match: NonNullable<RoomSnapshot['match']>) {
     return [
       'timeout',
       match.roundNumber,
+      match.timeout.startedAtMs,
       match.timeout.timedOutPlayerId,
       match.timeout.lastClaim ? claimToKey(match.timeout.lastClaim) : 'opening',
     ].join(':');
   }
 
   return null;
+}
+
+function buildSeatDealTargetPosition(seatPosition: ResolutionSeatPosition): {
+  leftPct: number;
+  topPct: number;
+} {
+  switch (seatPosition.placement) {
+    case 'top':
+      return {
+        leftPct: seatPosition.leftPct,
+        topPct: seatPosition.topPct + 8.5,
+      };
+    case 'side-left':
+      return {
+        leftPct: seatPosition.leftPct + 8.4,
+        topPct: seatPosition.topPct + 1.4,
+      };
+    case 'side-right':
+      return {
+        leftPct: seatPosition.leftPct - 8.4,
+        topPct: seatPosition.topPct + 1.4,
+      };
+    case 'corner-left':
+      return {
+        leftPct: seatPosition.leftPct + 6.9,
+        topPct: seatPosition.topPct - 1.2,
+      };
+    case 'corner-right':
+      return {
+        leftPct: seatPosition.leftPct - 6.9,
+        topPct: seatPosition.topPct - 1.2,
+      };
+    case 'self':
+      return {
+        leftPct: 54.5,
+        topPct: 78.2,
+      };
+  }
+}
+
+function buildDealFlightStyle(
+  target: { leftPct: number; topPct: number },
+  elapsedMs: number,
+  startsAtMs: number,
+): CSSProperties {
+  return {
+    '--poker-deal-x': `${target.leftPct - TABLE_DEAL_ORIGIN.leftPct}%`,
+    '--poker-deal-y': `${target.topPct - TABLE_DEAL_ORIGIN.topPct}%`,
+    animationDuration: `${DEALING_CARD_FLIGHT_MS}ms`,
+    animationDelay: `${Math.min(0, startsAtMs - elapsedMs)}ms`,
+  } as CSSProperties;
 }
 
 export function TableView({
@@ -177,9 +296,13 @@ export function TableView({
   onChallengeClaim,
   onSetPauseState,
   onRestartMatch,
+  onKickPlayer,
+  onBecomeSpectator,
+  onSetSpectatorCardReveal,
   onSendChatMessage,
   onSetTablePanelOpen,
 }: TableViewProps) {
+  const { catalog, formatClaimCompactLabel, formatClaimLabel, t } = useLocale();
   const match = snapshot.match;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
@@ -209,27 +332,35 @@ export function TableView({
   const previousTurnPlayerIdRef = useRef<string | null>(null);
   const previousClaimSequenceRef = useRef<number | null>(null);
   const previousRenderedClaimRef = useRef<ClaimHistoryEntry | null>(null);
+  const dealing = match?.dealing;
   const turnTimer = match?.turnTimer;
+  const isDealingPhase = match?.phase === 'dealing' && Boolean(dealing);
+  const isResultPhase =
+    match?.phase === 'showing-result' &&
+    Boolean(match.showdown || match.timeout);
 
   useEffect(() => {
     setNowMs(Date.now());
 
     if (
-      !turnTimer ||
-      turnTimer.isPaused ||
-      turnTimer.deadlineAtMs === undefined
+      !isDealingPhase &&
+      !isResultPhase &&
+      (!turnTimer || turnTimer.isPaused || turnTimer.deadlineAtMs === undefined)
     ) {
       return;
     }
 
-    const intervalId = window.setInterval(() => {
-      setNowMs(Date.now());
-    }, 250);
+    const intervalId = window.setInterval(
+      () => {
+        setNowMs(Date.now());
+      },
+      isDealingPhase || isResultPhase ? 80 : 250,
+    );
 
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [turnTimer]);
+  }, [isDealingPhase, isResultPhase, turnTimer]);
 
   useEffect(() => {
     const isClaimComposerVisible = claimComposerStage !== 'closed';
@@ -297,8 +428,12 @@ export function TableView({
 
     return undefined;
   }, [currentMatch.showdown, currentMatch.timeout, resolutionKey]);
+  const isDealing =
+    currentMatch.phase === 'dealing' && Boolean(currentMatch.dealing);
   const isShowingResult = currentMatch.phase === 'showing-result';
   const isResolutionStageOpen = Boolean(activeResolution) && isShowingResult;
+  const spectatorView = currentMatch.spectator;
+  const isSpectator = spectatorView?.isSpectator ?? false;
 
   const isMyTurn = currentMatch.currentTurnPlayerId === snapshot.selfPlayerId;
   const isHost = snapshot.hostPlayerId === snapshot.selfPlayerId;
@@ -308,17 +443,49 @@ export function TableView({
   );
   const currentPlayer = playersById.get(currentMatch.currentTurnPlayerId);
   const orderedPlayers = useMemo(() => sortPlayersBySeat(snapshot), [snapshot]);
-  const tablePlayers = useMemo(
-    () => rotatePlayersForTable(orderedPlayers, snapshot.selfPlayerId),
-    [orderedPlayers, snapshot.selfPlayerId],
+  const liveActivePlayers = useMemo(
+    () => orderedPlayers.filter((player) => !player.isEliminated),
+    [orderedPlayers],
   );
-  const selfPlayer =
-    tablePlayers.find((player) => player.playerId === snapshot.selfPlayerId) ??
-    playersById.get(snapshot.selfPlayerId);
-  const opponentPlayers = tablePlayers.filter(
-    (player) => player.playerId !== snapshot.selfPlayerId,
+  const roundParticipantIds = useMemo(
+    () =>
+      new Set(
+        activeResolution?.data.revealedHands.map((hand) => hand.playerId) ?? [],
+      ),
+    [activeResolution],
   );
-  const opponentSeatSlots = getDesktopOpponentSeatSlots(tablePlayers.length);
+  const stagePlayers = useMemo(() => {
+    if (!isResolutionStageOpen) {
+      return liveActivePlayers;
+    }
+
+    return orderedPlayers.filter((player) =>
+      roundParticipantIds.has(player.playerId),
+    );
+  }, [
+    isResolutionStageOpen,
+    liveActivePlayers,
+    orderedPlayers,
+    roundParticipantIds,
+  ]);
+  const tablePlayers = useMemo(() => {
+    if (
+      !stagePlayers.some((player) => player.playerId === snapshot.selfPlayerId)
+    ) {
+      return stagePlayers;
+    }
+
+    return rotatePlayersForTable(stagePlayers, snapshot.selfPlayerId);
+  }, [snapshot.selfPlayerId, stagePlayers]);
+  const selfPlayer = tablePlayers.find(
+    (player) => player.playerId === snapshot.selfPlayerId,
+  );
+  const opponentPlayers = selfPlayer
+    ? tablePlayers.filter((player) => player.playerId !== snapshot.selfPlayerId)
+    : tablePlayers;
+  const opponentSeatSlots = getDesktopOpponentSeatSlots(
+    selfPlayer ? tablePlayers.length : tablePlayers.length + 1,
+  );
   const resolutionSeatPositions = useMemo(() => {
     const positions: Record<string, ResolutionSeatPosition> = {};
 
@@ -349,19 +516,124 @@ export function TableView({
     if (selfPlayer) {
       positions[selfPlayer.playerId] = {
         leftPct: 50,
+        topPct: isResolutionStageOpen ? 91 : 84,
+        placement: 'self',
+      };
+    }
+
+    return positions;
+  }, [isResolutionStageOpen, opponentPlayers, opponentSeatSlots, selfPlayer]);
+  const dealTablePlayers = useMemo(() => {
+    if (
+      !liveActivePlayers.some(
+        (player) => player.playerId === snapshot.selfPlayerId,
+      )
+    ) {
+      return liveActivePlayers;
+    }
+
+    return rotatePlayersForTable(liveActivePlayers, snapshot.selfPlayerId);
+  }, [liveActivePlayers, snapshot.selfPlayerId]);
+  const dealSelfPlayer = dealTablePlayers.find(
+    (player) => player.playerId === snapshot.selfPlayerId,
+  );
+  const dealOpponentPlayers = dealSelfPlayer
+    ? dealTablePlayers.filter(
+        (player) => player.playerId !== snapshot.selfPlayerId,
+      )
+    : dealTablePlayers;
+  const dealOpponentSeatSlots = getDesktopOpponentSeatSlots(
+    dealSelfPlayer ? dealTablePlayers.length : dealTablePlayers.length + 1,
+  );
+  const dealSeatPositions = useMemo(() => {
+    const positions: Record<string, ResolutionSeatPosition> = {};
+
+    dealOpponentPlayers.forEach((player, index) => {
+      const slot = dealOpponentSeatSlots[index];
+
+      if (!slot) {
+        return;
+      }
+
+      let placement: ResolutionSeatPosition['placement'];
+
+      if (slot.variant === 'top') {
+        placement = 'top';
+      } else if (slot.variant === 'corner') {
+        placement = slot.leftPct < 50 ? 'corner-left' : 'corner-right';
+      } else {
+        placement = slot.leftPct < 50 ? 'side-left' : 'side-right';
+      }
+
+      positions[player.playerId] = {
+        leftPct: slot.leftPct,
+        topPct: slot.topPct,
+        placement,
+      };
+    });
+
+    if (dealSelfPlayer) {
+      positions[dealSelfPlayer.playerId] = {
+        leftPct: 50,
         topPct: 84,
         placement: 'self',
       };
     }
 
     return positions;
-  }, [opponentPlayers, opponentSeatSlots, selfPlayer]);
-  const activePlayersInOrder = orderedPlayers.filter(
-    (player) => !player.isEliminated,
+  }, [dealOpponentPlayers, dealOpponentSeatSlots, dealSelfPlayer]);
+  const dealingFlights = useMemo(
+    () => buildDealingFlights(liveActivePlayers, currentMatch.starterPlayerId),
+    [currentMatch.starterPlayerId, liveActivePlayers],
   );
-  const cardsInRound = activePlayersInOrder.reduce(
+  const dealElapsedMs =
+    isDealing && currentMatch.dealing
+      ? Math.min(
+          Math.max(nowMs - currentMatch.dealing.startedAtMs, 0),
+          currentMatch.dealing.durationMs,
+        )
+      : 0;
+  const dealtCountByPlayerId = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    if (!isDealing) {
+      return counts;
+    }
+
+    for (const flight of dealingFlights) {
+      if (dealElapsedMs < flight.arrivesAtMs) {
+        continue;
+      }
+
+      counts.set(flight.playerId, (counts.get(flight.playerId) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [dealElapsedMs, dealingFlights, isDealing]);
+  const activeDealFlights = useMemo(
+    () =>
+      isDealing
+        ? dealingFlights.filter(
+            (flight) =>
+              dealElapsedMs >= flight.startsAtMs &&
+              dealElapsedMs < flight.arrivesAtMs,
+          )
+        : [],
+    [dealElapsedMs, dealingFlights, isDealing],
+  );
+  const cardsInRound = liveActivePlayers.reduce(
     (total, player) => total + player.cardCount,
     0,
+  );
+  const spectatorRevealedHandsByPlayerId = useMemo(
+    () =>
+      new Map(
+        spectatorView?.revealedHands?.map((hand) => [
+          hand.playerId,
+          hand.cards,
+        ]) ?? [],
+      ),
+    [spectatorView],
   );
   const claimsByPlayerId = new Map<
     string,
@@ -406,53 +678,87 @@ export function TableView({
   const actionDisabled =
     !isConnected ||
     pendingCommand !== null ||
+    isSpectator ||
+    isDealing ||
     isPaused ||
     remainingMs === 0 ||
     isShowingResult;
   const checkDisabled =
-    !currentMatch.lastClaim || !isMyTurn || !!winner || actionDisabled;
+    isSpectator ||
+    !currentMatch.lastClaim ||
+    !isMyTurn ||
+    !!winner ||
+    actionDisabled;
   const canOpenClaimComposer =
-    isMyTurn && !winner && !isPaused && !isShowingResult && !actionDisabled;
+    !isSpectator &&
+    isMyTurn &&
+    !winner &&
+    !isPaused &&
+    !isShowingResult &&
+    !actionDisabled;
   const dockMessage = winner
-    ? `${winner.name} won the match.`
-    : isPaused
-      ? 'The turn clock is paused.'
-      : isShowingResult
-        ? 'Round result is being shown.'
-        : isMyTurn
-          ? currentMatch.lastClaim
-            ? 'Raise the current claim or check it.'
-            : 'Open the round with any legal claim.'
-          : `Waiting for ${currentPlayer?.name ?? 'the active player'} to act.`;
+    ? catalog.table.winnerMessage(winner.name)
+    : isDealing
+      ? catalog.table.dealingMessage(liveActivePlayers.length)
+      : isPaused
+        ? catalog.table.pausedClock
+        : isShowingResult
+          ? catalog.table.roundResultShown
+          : isSpectator
+            ? catalog.table.spectatingMessage
+            : isMyTurn
+              ? currentMatch.lastClaim
+                ? catalog.table.raiseOrCheck
+                : catalog.table.openRound
+              : catalog.table.waitingForPlayer(
+                  currentPlayer?.name ?? catalog.table.activePlayer,
+                );
   const claimPotCopy = winner
     ? null
-    : isPaused
+    : isDealing
       ? {
-          label: 'Clock paused',
-          title: currentMatch.lastClaim
-            ? claimToCompactLabel(currentMatch.lastClaim)
-            : 'Table waiting',
-          detail: currentPlayer
-            ? `Paused on ${currentPlayer.name}.`
-            : 'The host paused the turn clock.',
+          label: catalog.table.dealingPotLabel,
+          title: catalog.table.dealingPotTitle,
+          detail: catalog.table.dealingPotDetail,
         }
-      : currentMatch.lastClaim
+      : isPaused
         ? {
-            label: 'Claim on table',
-            title: claimToCompactLabel(currentMatch.lastClaim),
-            detail: lastClaimPlayer
-              ? `${lastClaimPlayer.name} set the pace.`
-              : 'Raise it or check it.',
+            label: catalog.table.clockPausedLabel,
+            title: currentMatch.lastClaim
+              ? formatClaimCompactLabel(currentMatch.lastClaim)
+              : catalog.table.tableWaiting,
+            detail: currentPlayer
+              ? catalog.table.pausedOnPlayer(currentPlayer.name)
+              : catalog.table.hostPausedClock,
           }
-        : {
-            label: 'Open table',
-            title: 'No claim yet',
-            detail: 'Any legal claim can open the round.',
-          };
+        : currentMatch.lastClaim
+          ? {
+              label: catalog.table.claimOnTable,
+              title: formatClaimCompactLabel(currentMatch.lastClaim),
+              detail: lastClaimPlayer
+                ? catalog.table.claimSetPace(lastClaimPlayer.name)
+                : catalog.table.raiseOrCheck,
+            }
+          : {
+              label: catalog.table.openTable,
+              title: catalog.table.noClaimYet,
+            };
+  const displayedCardCountByPlayerId = useMemo(
+    () =>
+      new Map(
+        orderedPlayers.map((player) => [
+          player.playerId,
+          isDealing
+            ? (dealtCountByPlayerId.get(player.playerId) ?? 0)
+            : player.cardCount,
+        ]),
+      ),
+    [dealtCountByPlayerId, isDealing, orderedPlayers],
+  );
   const isClaimComposerVisible = claimComposerStage !== 'closed';
 
   useEffect(() => {
-    if (winner || isShowingResult) {
+    if (winner || isShowingResult || isDealing) {
       previousTurnPlayerIdRef.current = currentTurnPlayerId;
       setTurnAnnouncement(null);
       return;
@@ -468,7 +774,7 @@ export function TableView({
     }
 
     previousTurnPlayerIdRef.current = currentTurnPlayerId;
-  }, [currentTurnPlayerId, isShowingResult, winner]);
+  }, [currentTurnPlayerId, isDealing, isShowingResult, winner]);
 
   useEffect(() => {
     if (!turnAnnouncement) {
@@ -635,18 +941,18 @@ export function TableView({
           >
             <div className="turn-timer-header">
               <div>
-                <p className="claim-panel-label">Turn clock</p>
-                <h2>{currentPlayer?.name ?? 'Active player'}</h2>
+                <p className="claim-panel-label">{catalog.table.turnClock}</p>
+                <h2>{currentPlayer?.name ?? catalog.table.activePlayer}</h2>
               </div>
 
               <span className={`turn-timer-state is-${timerUrgency}`}>
                 {isPaused
-                  ? 'Paused'
+                  ? t('paused')
                   : timerUrgency === 'critical'
-                    ? 'Critical'
+                    ? catalog.table.critical
                     : timerUrgency === 'warning'
-                      ? 'Warning'
-                      : 'Live'}
+                      ? catalog.table.warning
+                      : t('live')}
               </span>
             </div>
 
@@ -658,8 +964,10 @@ export function TableView({
 
             <p className="claim-helper-text">
               {isPaused
-                ? 'The host has paused the clock for the current seat.'
-                : `${currentPlayer?.name ?? 'The active player'} is on the clock.`}
+                ? catalog.table.hostPausedSeat
+                : catalog.table.playerOnClock(
+                    currentPlayer?.name ?? catalog.table.activePlayer,
+                  )}
             </p>
 
             {isHost ? (
@@ -670,7 +978,7 @@ export function TableView({
                   onClick={() => onSetPauseState(!isPaused)}
                   disabled={!isConnected || pendingCommand !== null}
                 >
-                  {isPaused ? 'Resume' : 'Pause'}
+                  {isPaused ? t('resume') : t('pause')}
                 </button>
               </div>
             ) : null}
@@ -691,120 +999,241 @@ export function TableView({
   }
 
   function renderPlayerTableSection() {
+    const activeDrawerPlayers = orderedPlayers.filter(
+      (player) => !player.isEliminated,
+    );
+    const spectatorPlayers = orderedPlayers.filter(
+      (player) => player.isEliminated,
+    );
+
+    function renderPlayerRow(
+      player: PlayerSnapshot,
+      section: 'active' | 'spectator',
+    ) {
+      const playerClaims = claimsByPlayerId.get(player.playerId) ?? [];
+      const isDisconnected = player.connectionStatus === 'disconnected';
+      const displayedCardCount =
+        displayedCardCountByPlayerId.get(player.playerId) ?? player.cardCount;
+      const revealedHand = spectatorRevealedHandsByPlayerId.get(
+        player.playerId,
+      );
+      const isSelfSpectatorRow =
+        section === 'spectator' &&
+        isSpectator &&
+        player.playerId === snapshot.selfPlayerId &&
+        !player.isBot;
+      const canKickPlayer =
+        section === 'active' &&
+        isHost &&
+        player.playerId !== snapshot.selfPlayerId &&
+        !winner;
+      const canStopPlaying =
+        section === 'active' &&
+        player.playerId === snapshot.selfPlayerId &&
+        !player.isBot &&
+        !isSpectator &&
+        !winner;
+
+      return (
+        <li
+          key={player.playerId}
+          className={`player-row ${player.playerId === currentTurnPlayerId ? 'turn-row' : ''}`}
+        >
+          <details className="player-details">
+            <summary className="player-details-summary">
+              <div
+                className={`seat-emblem ${getSeatToneClass(player.seatIndex)}`}
+                aria-hidden="true"
+              >
+                <span className="seat-emblem-seat">{player.seatIndex + 1}</span>
+                <span className="seat-emblem-initials">
+                  {getPlayerInitials(player.name)}
+                </span>
+              </div>
+
+              <div className="player-card-body">
+                <div className="player-primary">
+                  <div className="player-name-row">
+                    <strong>{player.name}</strong>
+                    {player.playerId === snapshot.selfPlayerId ? (
+                      <span className="scene-chip scene-chip-compact">
+                        {t('you')}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <p className="row-meta">
+                    {catalog.table.seatMeta(player.seatIndex, player.isHost)}
+                  </p>
+                </div>
+
+                <div className="status-pills player-status-pills">
+                  {player.isHost ? (
+                    <span className="pill connected">
+                      <CrownIcon className="status-icon" />
+                      {t('host')}
+                    </span>
+                  ) : null}
+                  {player.isBot ? (
+                    <span className="pill bot">
+                      <BotIcon className="status-icon" />
+                      {t('bot')}
+                    </span>
+                  ) : null}
+                  <span
+                    className={player.isEliminated ? 'pill idle' : 'pill ready'}
+                  >
+                    <CardsIcon className="status-icon" />
+                    {player.isEliminated
+                      ? t('spectating')
+                      : isDealing
+                        ? catalog.table.dealtProgress(
+                            displayedCardCount,
+                            player.cardCount,
+                          )
+                        : catalog.table.dealtCount(player.cardCount)}
+                  </span>
+                  {isDisconnected ? (
+                    <span className="pill idle">
+                      <SignalIcon className="status-icon" />
+                      {t('offline')}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </summary>
+
+            <div className="player-details-body">
+              {revealedHand && revealedHand.length > 0 ? (
+                <div className="player-live-hand">
+                  <p className="claim-panel-label">{catalog.table.liveHand}</p>
+                  <ClaimCardStack cards={revealedHand} compact />
+                </div>
+              ) : null}
+
+              {isSelfSpectatorRow ? (
+                <div className="player-spectator-controls">
+                  <p className="row-meta">
+                    {spectatorView?.revealCardsEnabled
+                      ? catalog.table.spectatorRevealOn
+                      : catalog.table.spectatorRevealOff}
+                  </p>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    disabled={
+                      !isConnected ||
+                      pendingCommand !== null ||
+                      currentMatch.phase === 'showing-result'
+                    }
+                    onClick={() =>
+                      onSetSpectatorCardReveal(
+                        !(spectatorView?.revealCardsEnabled ?? false),
+                      )
+                    }
+                  >
+                    {spectatorView?.revealCardsEnabled
+                      ? catalog.table.hideLiveCards
+                      : catalog.table.revealLiveCards}
+                  </button>
+                </div>
+              ) : null}
+
+              {section === 'active' && (canKickPlayer || canStopPlaying) ? (
+                <div className="player-row-actions">
+                  {canKickPlayer ? (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={!isConnected || pendingCommand !== null}
+                      onClick={() => onKickPlayer(player.playerId)}
+                    >
+                      {catalog.table.kick}
+                    </button>
+                  ) : null}
+
+                  {canStopPlaying ? (
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      disabled={!isConnected || pendingCommand !== null}
+                      onClick={onBecomeSpectator}
+                    >
+                      {catalog.table.stopPlaying}
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {playerClaims.length > 0 ? (
+                <div className="player-claim-history">
+                  {playerClaims.map((entry) => (
+                    <div
+                      key={entry.sequenceNumber}
+                      className="player-claim-chip"
+                      aria-label={formatClaimLabel(entry.claim)}
+                      title={formatClaimCompactLabel(entry.claim)}
+                    >
+                      <ClaimCardStack
+                        cards={claimToIllustrationCards(entry.claim)}
+                        compact
+                      />
+                      <span className="player-claim-label">
+                        {formatClaimCompactLabel(entry.claim)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="row-meta">
+                  {section === 'spectator'
+                    ? isSelfSpectatorRow
+                      ? catalog.table.stayAsSpectator
+                      : catalog.table.watchingFromRail
+                    : isDisconnected && canKickPlayer
+                      ? catalog.table.reconnectKickHint
+                      : catalog.table.noClaimsYet}
+                </p>
+              )}
+            </div>
+          </details>
+        </li>
+      );
+    }
+
     return (
       <section className="side-panel-section">
         <div className="side-panel-header">
-          <h2>Players</h2>
+          <h2>{t('players')}</h2>
 
           <span className="pill connected">
             <ReadyIcon className="status-icon" />
-            {activePlayersInOrder.length} active
+            {catalog.table.activeCount(liveActivePlayers.length)}
           </span>
         </div>
 
         <ul className="player-list">
-          {orderedPlayers.map((player) => {
-            const playerClaims = claimsByPlayerId.get(player.playerId) ?? [];
-            const isDisconnected = player.connectionStatus === 'disconnected';
-
-            return (
-              <li
-                key={player.playerId}
-                className={`player-row ${player.playerId === currentTurnPlayerId ? 'turn-row' : ''}`}
-              >
-                <details className="player-details">
-                  <summary className="player-details-summary">
-                    <div
-                      className={`seat-emblem ${getSeatToneClass(player.seatIndex)}`}
-                      aria-hidden="true"
-                    >
-                      <span className="seat-emblem-seat">
-                        {player.seatIndex + 1}
-                      </span>
-                      <span className="seat-emblem-initials">
-                        {getPlayerInitials(player.name)}
-                      </span>
-                    </div>
-
-                    <div className="player-card-body">
-                      <div className="player-primary">
-                        <div className="player-name-row">
-                          <strong>{player.name}</strong>
-                          {player.playerId === snapshot.selfPlayerId ? (
-                            <span className="scene-chip scene-chip-compact">
-                              You
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <p className="row-meta">
-                          Seat {player.seatIndex + 1}
-                          {player.isHost ? ' • host' : ''}
-                        </p>
-                      </div>
-
-                      <div className="status-pills player-status-pills">
-                        {player.isHost ? (
-                          <span className="pill connected">
-                            <CrownIcon className="status-icon" />
-                            host
-                          </span>
-                        ) : null}
-                        {player.isBot ? (
-                          <span className="pill bot">
-                            <BotIcon className="status-icon" />
-                            bot
-                          </span>
-                        ) : null}
-                        <span
-                          className={
-                            player.isEliminated ? 'pill idle' : 'pill ready'
-                          }
-                        >
-                          <CardsIcon className="status-icon" />
-                          {player.isEliminated
-                            ? 'out'
-                            : `${player.cardCount} dealt`}
-                        </span>
-                        {isDisconnected ? (
-                          <span className="pill idle">
-                            <SignalIcon className="status-icon" />
-                            offline
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                  </summary>
-
-                  <div className="player-details-body">
-                    {playerClaims.length > 0 ? (
-                      <div className="player-claim-history">
-                        {playerClaims.map((entry) => (
-                          <div
-                            key={entry.sequenceNumber}
-                            className="player-claim-chip"
-                            aria-label={claimToLabel(entry.claim)}
-                            title={claimToCompactLabel(entry.claim)}
-                          >
-                            <ClaimCardStack
-                              cards={claimToIllustrationCards(entry.claim)}
-                              compact
-                            />
-                            <span className="player-claim-label">
-                              {claimToCompactLabel(entry.claim)}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="row-meta">No claims yet.</p>
-                    )}
-                  </div>
-                </details>
-              </li>
-            );
-          })}
+          {activeDrawerPlayers.map((player) =>
+            renderPlayerRow(player, 'active'),
+          )}
         </ul>
+
+        {spectatorPlayers.length > 0 ? (
+          <div className="side-panel-section split-top">
+            <div className="side-panel-header">
+              <h2>{t('spectators')}</h2>
+              <span className="pill idle">
+                {catalog.table.watchingCount(spectatorPlayers.length)}
+              </span>
+            </div>
+
+            <ul className="player-list">
+              {spectatorPlayers.map((player) =>
+                renderPlayerRow(player, 'spectator'),
+              )}
+            </ul>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -858,9 +1287,32 @@ export function TableView({
           const isCurrentTurn = player.playerId === currentTurnPlayerId;
           const isTurnArriving = turnAnnouncement?.playerId === player.playerId;
           const isDisconnected = player.connectionStatus === 'disconnected';
+          const displayedCardCount =
+            displayedCardCountByPlayerId.get(player.playerId) ??
+            player.cardCount;
+          const revealedHand = spectatorRevealedHandsByPlayerId.get(
+            player.playerId,
+          );
+          const visibleRevealedHand =
+            spectatorView?.revealCardsEnabled && revealedHand
+              ? sortCardsDescending(revealedHand).slice(
+                  0,
+                  isDealing ? displayedCardCount : revealedHand.length,
+                )
+              : [];
           const isLowCards = !player.isEliminated && player.cardCount <= 1;
           const isJustClaimed = claimPulse?.playerId === player.playerId;
           const seatCopy = buildSeatAnchorCopy({
+            labels: {
+              you: t('you'),
+              bot: t('bot'),
+              host: t('host'),
+              out: t('out'),
+              offline: t('offline'),
+              acting: t('acting'),
+              paused: t('paused'),
+              pressure: t('pressure'),
+            },
             player,
             isCurrentTurn,
             isLowCards,
@@ -881,7 +1333,11 @@ export function TableView({
               key={player.playerId}
               className={`poker-seat-anchor poker-seat-anchor-opponent seat-slot-${slot.variant} ${slotSideClass} ${getSeatToneClass(player.seatIndex)} ${isCurrentTurn ? 'is-current-turn' : ''} ${player.isEliminated ? 'is-eliminated' : ''} ${isTurnArriving ? 'is-turn-arriving' : ''} ${isJustClaimed ? 'is-just-claimed' : ''} ${isDisconnected ? 'is-disconnected' : ''} ${isLowCards ? 'is-low-cards' : ''}`}
               style={buildTableSeatStyle(slot)}
-              aria-label={`${player.name}, ${player.cardCount} ${player.cardCount === 1 ? 'card' : 'cards'}`}
+              aria-label={catalog.table.seatHandAria(
+                player.name,
+                displayedCardCount,
+                isDealing,
+              )}
             >
               <div className="poker-seat-anchor-head">
                 <div className="poker-seat-avatar-wrap">
@@ -899,16 +1355,21 @@ export function TableView({
                   <span
                     className={`poker-seat-count ${player.isEliminated ? 'is-eliminated' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-low-cards' : ''}`}
                   >
-                    {player.isEliminated ? 'Out' : player.cardCount}
+                    {player.isEliminated ? t('out') : displayedCardCount}
                   </span>
                 </div>
 
-                {!isShowingResult
-                  ? renderHiddenCardFan({
-                      count: player.cardCount,
-                      className: 'poker-seat-fan',
-                    })
-                  : null}
+                {!isShowingResult && visibleRevealedHand.length > 0 ? (
+                  <div className="poker-seat-live-hand" aria-hidden="true">
+                    <ClaimCardStack cards={visibleRevealedHand} compact />
+                  </div>
+                ) : !isShowingResult &&
+                  (!isDealing || displayedCardCount > 0) ? (
+                  renderHiddenCardFan({
+                    count: Math.max(displayedCardCount, 1),
+                    className: 'poker-seat-fan',
+                  })
+                ) : null}
               </div>
 
               <div className="poker-seat-chip">
@@ -948,8 +1409,21 @@ export function TableView({
 
     const isCurrentTurn = selfPlayer.playerId === currentTurnPlayerId;
     const isDisconnected = selfPlayer.connectionStatus === 'disconnected';
+    const displayedCardCount =
+      displayedCardCountByPlayerId.get(selfPlayer.playerId) ??
+      selfPlayer.cardCount;
     const isLowCards = !selfPlayer.isEliminated && selfPlayer.cardCount <= 1;
     const seatCopy = buildSeatAnchorCopy({
+      labels: {
+        you: t('you'),
+        bot: t('bot'),
+        host: t('host'),
+        out: t('out'),
+        offline: t('offline'),
+        acting: t('acting'),
+        paused: t('paused'),
+        pressure: t('pressure'),
+      },
       player: selfPlayer,
       isCurrentTurn,
       isLowCards,
@@ -961,7 +1435,7 @@ export function TableView({
     return (
       <section
         className={`poker-self-rail ${getSeatToneClass(selfPlayer.seatIndex)} ${isCurrentTurn ? 'is-current-turn' : ''} ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-disconnected' : ''} ${isShowingResult ? 'is-showing-result' : ''}`}
-        aria-label="Your seat"
+        aria-label={catalog.table.yourSeat}
       >
         <div className="poker-self-identity">
           <div className="poker-seat-avatar-wrap">
@@ -979,7 +1453,7 @@ export function TableView({
             <span
               className={`poker-seat-count ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-low-cards' : ''}`}
             >
-              {selfPlayer.isEliminated ? 'Out' : selfPlayer.cardCount}
+              {selfPlayer.isEliminated ? t('out') : displayedCardCount}
             </span>
           </div>
 
@@ -1003,15 +1477,30 @@ export function TableView({
             </div>
 
             <span className="poker-self-hand-label">
-              Your hand · {yourHand.length}{' '}
-              {yourHand.length === 1 ? 'card' : 'cards'}
+              {catalog.table.yourHand(
+                isDealing ? displayedCardCount : yourHand.length,
+              )}
             </span>
           </div>
         </div>
 
         {!isShowingResult ? (
           <div className="poker-self-hand">
-            <ClaimCardStack cards={sortCardsDescending(yourHand)} />
+            {isDealing ? (
+              <div
+                className="poker-self-dealt-hand"
+                aria-label={catalog.table.selfDealtHandAria}
+              >
+                {Array.from({ length: displayedCardCount }, (_, cardIndex) => (
+                  <span
+                    key={`${selfPlayer.playerId}-deal-${cardIndex + 1}`}
+                    className="poker-self-dealt-card"
+                  />
+                ))}
+              </div>
+            ) : (
+              <ClaimCardStack cards={sortCardsDescending(yourHand)} />
+            )}
           </div>
         ) : null}
       </section>
@@ -1026,56 +1515,67 @@ export function TableView({
     const outgoingClaim = claimTransition.outgoingEntry?.claim;
     const outgoingPlayerName = claimTransition.outgoingEntry
       ? (playersById.get(claimTransition.outgoingEntry.playerId)?.name ??
-        'Unknown')
+        catalog.showdown.unknownPlayer)
       : undefined;
     const activeClaim = currentMatch.lastClaim;
 
     return (
       <section
-        className={`poker-claim-pot ${activeClaim ? 'has-claim' : 'is-opening'} ${isPaused ? 'is-paused' : ''} ${claimTransition.phase === 'entering' ? 'is-entering' : ''} ${claimTransition.phase === 'swapping' ? 'is-swapping' : ''}`}
-        aria-label="Current claim"
+        className={`poker-claim-pot ${activeClaim ? 'has-claim' : 'is-opening'} ${isDealing ? 'is-dealing' : ''} ${isPaused ? 'is-paused' : ''} ${claimTransition.phase === 'entering' ? 'is-entering' : ''} ${claimTransition.phase === 'swapping' ? 'is-swapping' : ''}`}
+        aria-label={catalog.table.currentClaimLabel}
       >
-        <div className="poker-claim-pot-copy">
-          <span className="poker-object-label">{claimPotCopy.label}</span>
-          <strong className="poker-claim-pot-title">
-            {claimPotCopy.title}
-          </strong>
-          <span className="poker-claim-pot-detail">{claimPotCopy.detail}</span>
-        </div>
+        <div className="poker-claim-pot-frame">
+          <div className="poker-claim-pot-visual">
+            {outgoingClaim && claimTransition.phase === 'swapping' ? (
+              <div className="poker-claim-pot-layer is-outgoing">
+                <ClaimCardStack
+                  cards={claimToIllustrationCards(outgoingClaim)}
+                  compact
+                />
+                <span className="poker-claim-pot-layer-text">
+                  {outgoingPlayerName
+                    ? catalog.table.claimPotLine(
+                        outgoingPlayerName,
+                        formatClaimCompactLabel(outgoingClaim),
+                      )
+                    : formatClaimCompactLabel(outgoingClaim)}
+                </span>
+              </div>
+            ) : null}
 
-        <div className="poker-claim-pot-visual">
-          {outgoingClaim && claimTransition.phase === 'swapping' ? (
-            <div className="poker-claim-pot-layer is-outgoing">
-              <ClaimCardStack
-                cards={claimToIllustrationCards(outgoingClaim)}
-                compact
-              />
-              <span className="poker-claim-pot-layer-text">
-                {outgoingPlayerName
-                  ? `${outgoingPlayerName} spoke ${claimToCompactLabel(outgoingClaim)}.`
-                  : claimToCompactLabel(outgoingClaim)}
-              </span>
-            </div>
-          ) : null}
+            {activeClaim ? (
+              <div className="poker-claim-pot-layer is-current">
+                <ClaimCardStack
+                  cards={claimToIllustrationCards(activeClaim)}
+                  compact
+                />
+                <span className="poker-claim-pot-layer-text">
+                  {lastClaimPlayer
+                    ? catalog.table.claimPotLine(
+                        lastClaimPlayer.name,
+                        formatClaimCompactLabel(activeClaim),
+                      )
+                    : formatClaimCompactLabel(activeClaim)}
+                </span>
+              </div>
+            ) : (
+              <div className="poker-claim-pot-opening" aria-hidden="true">
+                <span className="poker-claim-pot-opening-dot" />
+              </div>
+            )}
+          </div>
 
-          {activeClaim ? (
-            <div className="poker-claim-pot-layer is-current">
-              <ClaimCardStack
-                cards={claimToIllustrationCards(activeClaim)}
-                compact
-              />
-              <span className="poker-claim-pot-layer-text">
-                {lastClaimPlayer
-                  ? `${lastClaimPlayer.name} set ${claimToCompactLabel(activeClaim)}.`
-                  : claimToCompactLabel(activeClaim)}
+          <div className="poker-claim-pot-copy">
+            <span className="poker-object-label">{claimPotCopy.label}</span>
+            <strong className="poker-claim-pot-title">
+              {claimPotCopy.title}
+            </strong>
+            {claimPotCopy.detail ? (
+              <span className="poker-claim-pot-detail">
+                {claimPotCopy.detail}
               </span>
-            </div>
-          ) : (
-            <div className="poker-claim-pot-opening">
-              <span className="poker-claim-pot-opening-dot" />
-              <span>Open the round with any legal claim.</span>
-            </div>
-          )}
+            ) : null}
+          </div>
         </div>
       </section>
     );
@@ -1088,8 +1588,8 @@ export function TableView({
 
     return (
       <div
-        className="poker-table-deck"
-        aria-label={`Cards in round ${cardsInRound}`}
+        className={`poker-table-deck ${isDealing ? 'is-dealing' : ''}`}
+        aria-label={`${catalog.table.cardsInRound} ${cardsInRound}`}
       >
         <div className="poker-table-deck-stack" aria-hidden="true">
           <span className="poker-table-deck-card poker-table-deck-card-back" />
@@ -1098,9 +1598,43 @@ export function TableView({
         </div>
 
         <div className="poker-table-deck-chip">
-          <span className="poker-object-label">Cards in round</span>
+          <span className="poker-object-label">
+            {isDealing ? catalog.table.dealingNow : catalog.table.cardsInRound}
+          </span>
           <strong>{cardsInRound}</strong>
         </div>
+      </div>
+    );
+  }
+
+  function renderDealLayer() {
+    if (!isDealing || !currentMatch.dealing) {
+      return null;
+    }
+
+    return (
+      <div className="poker-deal-layer" aria-label={catalog.table.dealingAria}>
+        <div className="poker-deal-origin" aria-hidden="true" />
+
+        {activeDealFlights.map((flight) => {
+          const seatPosition = dealSeatPositions[flight.playerId];
+
+          if (!seatPosition) {
+            return null;
+          }
+
+          return (
+            <span
+              key={`${flight.playerId}:${flight.cardOrdinal}:${flight.startsAtMs}`}
+              className="poker-deal-flight-card"
+              style={buildDealFlightStyle(
+                buildSeatDealTargetPosition(seatPosition),
+                dealElapsedMs,
+                flight.startsAtMs,
+              )}
+            />
+          );
+        })}
       </div>
     );
   }
@@ -1111,16 +1645,21 @@ export function TableView({
     }
 
     return (
-      <section className="poker-winner-pot" aria-label="Match winner">
+      <section
+        className="poker-winner-pot"
+        aria-label={catalog.table.matchWinner}
+      >
         <PlayerAvatar
           name={winner.name}
           seatIndex={winner.seatIndex}
           size="lg"
         />
         <div className="poker-winner-copy">
-          <span className="poker-object-label">Match winner</span>
+          <span className="poker-object-label">
+            {catalog.table.matchWinner}
+          </span>
           <strong>{winner.name}</strong>
-          <span>The table is closed until the host returns to the lobby.</span>
+          <span>{catalog.table.matchClosed}</span>
         </div>
       </section>
     );
@@ -1142,39 +1681,44 @@ export function TableView({
           type="button"
           className="poker-claim-popup-scrim"
           onClick={closeClaimComposer}
-          aria-label="Close claim builder"
+          aria-label={catalog.table.closeClaimBuilder}
         />
 
         <dialog
           open
           className="poker-claim-popup-shell"
           aria-modal="true"
-          aria-label="Claim builder"
+          aria-label={t('claimBuilder')}
         >
           <div className="poker-claim-popup-header">
-            <div>
-              <p className="eyebrow">Claim builder</p>
-              <h2>Pick your exact claim</h2>
+            <div className="poker-claim-popup-copy">
+              <p className="eyebrow">{t('claimBuilder')}</p>
+              <h2>{t('buildYourClaim')}</h2>
               <p className="claim-helper-text">
                 {selectedComposerClaim
-                  ? `Selected: ${claimToCompactLabel(selectedComposerClaim)}`
+                  ? catalog.table.selectedClaim(
+                      formatClaimCompactLabel(selectedComposerClaim),
+                    )
                   : currentLastClaim
-                    ? 'Choose a stronger claim than the one on the table.'
-                    : 'Choose the claim that opens the round.'}
+                    ? catalog.table.strongerClaimPrompt
+                    : catalog.table.openingClaimPrompt}
               </p>
             </div>
 
             <button
               type="button"
-              className="ghost-button poker-table-control-button"
+              className="ghost-button poker-table-control-button poker-claim-popup-close"
               onClick={closeClaimComposer}
             >
-              Close
+              {t('close')}
             </button>
           </div>
 
           <ClaimComposer
             claimOrderPreset={snapshot.settings.claimOrderPreset}
+            flushRule={snapshot.settings.flushRule}
+            yourHand={yourHand}
+            cardsInRound={cardsInRound}
             disabled={actionDisabled}
             {...(currentLastClaim ? { lastClaim: currentLastClaim } : {})}
             onSelectedClaimChange={setSelectedComposerClaim}
@@ -1193,18 +1737,24 @@ export function TableView({
       <article className="hero-panel poker-match-shell">
         <div className="poker-match-header">
           <div className="poker-match-copy">
-            <p className="eyebrow">Match</p>
-            <h1>Round {match.roundNumber}</h1>
+            <p className="eyebrow">{t('match')}</p>
+            <h1>{catalog.table.roundTitle(match.roundNumber)}</h1>
             <p className="lead">
               {winner
-                ? `${winner.name} won the match.`
-                : isShowingResult
-                  ? 'Resolving the last round.'
-                  : isPaused
-                    ? `Paused on ${currentPlayer?.name ?? 'the active player'}.`
-                    : isMyTurn
-                      ? 'Your turn.'
-                      : `${currentPlayer?.name ?? 'Another player'} is acting.`}
+                ? catalog.table.winnerMessage(winner.name)
+                : isDealing
+                  ? catalog.table.dealingLead
+                  : isShowingResult
+                    ? catalog.table.resolvingLead
+                    : isPaused
+                      ? catalog.table.pausedLead(
+                          currentPlayer?.name ?? catalog.table.activePlayer,
+                        )
+                      : isMyTurn
+                        ? catalog.table.yourTurnLead
+                        : catalog.table.actingLead(
+                            currentPlayer?.name ?? catalog.table.activePlayer,
+                          )}
             </p>
           </div>
         </div>
@@ -1235,7 +1785,7 @@ export function TableView({
                 }}
               >
                 <SeatsIcon className="status-icon" />
-                {isTablePanelOpen ? 'Hide players' : 'Players'}
+                {isTablePanelOpen ? catalog.table.hidePlayers : t('players')}
               </button>
 
               <button
@@ -1250,7 +1800,7 @@ export function TableView({
                 }}
               >
                 <ChatIcon className="status-icon" />
-                {isChatPanelOpen ? 'Hide chat' : 'Chat'}
+                {isChatPanelOpen ? catalog.table.hideChat : t('chat')}
               </button>
 
               {isHost && turnTimer && !winner ? (
@@ -1262,7 +1812,7 @@ export function TableView({
                     !isConnected || pendingCommand !== null || isShowingResult
                   }
                 >
-                  {isPaused ? 'Resume' : 'Pause'}
+                  {isPaused ? t('resume') : t('pause')}
                 </button>
               ) : null}
             </div>
@@ -1272,21 +1822,27 @@ export function TableView({
             >
               <span className="pill ready poker-table-status">
                 <CardsIcon className="status-icon" />
-                Room {snapshot.roomCode}
+                {catalog.table.roomCode(snapshot.roomCode)}
               </span>
+              {isDealing ? (
+                <span className="pill ready poker-table-status poker-table-dealing-status">
+                  <CardsIcon className="status-icon" />
+                  {catalog.table.dealingNow}
+                </span>
+              ) : null}
               {turnTimer && remainingMs !== null ? (
                 <span
                   className={`${isPaused ? 'pill idle' : 'pill connected'} poker-table-status poker-table-timer timer-pill-${timerUrgency}`}
                 >
                   <TimerIcon className="status-icon" />
-                  {isPaused ? 'paused' : formatRemainingMs(remainingMs)}
+                  {isPaused ? t('paused') : formatRemainingMs(remainingMs)}
                 </span>
               ) : null}
               <span
                 className={`${isConnected ? 'pill connected' : 'pill idle'} poker-table-status`}
               >
                 <SignalIcon className="status-icon" />
-                {isConnected ? 'live' : 'reconnecting'}
+                {isConnected ? t('live') : t('reconnecting')}
               </span>
             </div>
 
@@ -1295,17 +1851,23 @@ export function TableView({
                 key={turnAnnouncement.token}
                 className={`poker-turn-banner ${turnAnnouncement.playerId === snapshot.selfPlayerId ? 'is-self' : ''}`}
               >
-                <span className="poker-turn-banner-kicker">Turn handoff</span>
+                <span className="poker-turn-banner-kicker">
+                  {catalog.table.turnHandoff}
+                </span>
                 <strong>
                   {turnAnnouncement.playerId === snapshot.selfPlayerId
-                    ? 'Your move'
-                    : `${playersById.get(turnAnnouncement.playerId)?.name ?? 'Player'} to act`}
+                    ? catalog.table.yourMove
+                    : catalog.table.playerToAct(
+                        playersById.get(turnAnnouncement.playerId)?.name ??
+                          catalog.table.activePlayer,
+                      )}
                 </strong>
               </div>
             ) : null}
 
             {renderClaimPot()}
             {renderDeckObject()}
+            {renderDealLayer()}
             {renderWinnerPot()}
             {renderOpponentAnchors()}
             {renderSelfAnchor()}
@@ -1314,6 +1876,7 @@ export function TableView({
                 result={activeResolution}
                 players={snapshot.players}
                 seatPositions={resolutionSeatPositions}
+                nowMs={nowMs}
               />
             ) : null}
             {renderClaimComposerPopup()}
@@ -1333,13 +1896,55 @@ export function TableView({
                   className="poker-footer-button poker-footer-button-primary poker-footer-button-wide"
                   onClick={onRestartMatch}
                 >
-                  Return to lobby
+                  {catalog.table.returnToLobby}
                 </button>
               ) : (
                 <div className="poker-footer-placeholder">
-                  Waiting for the host to return to the lobby.
+                  {catalog.table.waitingForHost}
                 </div>
               )}
+            </div>
+          ) : isSpectator ? (
+            <div className="poker-footer-dock poker-footer-dock-spectator">
+              <div className="poker-footer-placeholder poker-footer-spectator-note">
+                <strong>{catalog.table.spectatingFromRail}</strong>
+                <span>
+                  {spectatorView?.revealCardsEnabled
+                    ? catalog.table.canSeeActiveHands
+                    : catalog.table.revealPrompt}
+                </span>
+              </div>
+              <button
+                type="button"
+                className={`poker-footer-button poker-footer-button-wide ${
+                  spectatorView?.revealCardsEnabled
+                    ? 'poker-footer-button-check'
+                    : 'poker-footer-button-primary'
+                }`}
+                disabled={
+                  !isConnected ||
+                  pendingCommand !== null ||
+                  currentMatch.phase === 'showing-result'
+                }
+                onClick={() =>
+                  onSetSpectatorCardReveal(
+                    !(spectatorView?.revealCardsEnabled ?? false),
+                  )
+                }
+              >
+                <span className="poker-footer-button-copy">
+                  <span className="poker-footer-button-kicker">
+                    {spectatorView?.revealCardsEnabled
+                      ? catalog.table.hideActiveHands
+                      : catalog.table.spectatorMode}
+                  </span>
+                  <strong className="poker-footer-button-label">
+                    {spectatorView?.revealCardsEnabled
+                      ? catalog.table.hideLiveCards
+                      : catalog.table.revealLiveCards}
+                  </strong>
+                </span>
+              </button>
             </div>
           ) : (
             <>
@@ -1361,19 +1966,19 @@ export function TableView({
                     <span className="poker-footer-button-copy">
                       <span className="poker-footer-button-kicker">
                         {selectedComposerClaim
-                          ? claimToCompactLabel(selectedComposerClaim)
+                          ? formatClaimCompactLabel(selectedComposerClaim)
                           : match.lastClaim
-                            ? 'Raise the table'
-                            : 'Start the round'}
+                            ? catalog.table.raiseTheTable
+                            : catalog.table.startTheRound}
                       </span>
                       <strong className="poker-footer-button-label">
                         {isClaimComposerVisible
-                          ? 'Close builder'
+                          ? catalog.table.closeBuilder
                           : selectedComposerClaim
-                            ? 'Edit claim'
+                            ? catalog.table.editClaim
                             : match.lastClaim
-                              ? 'Build claim'
-                              : 'Open claim'}
+                              ? catalog.table.buildClaim
+                              : catalog.table.openClaim}
                       </strong>
                     </span>
                   </button>
@@ -1386,10 +1991,10 @@ export function TableView({
                   >
                     <span className="poker-footer-button-copy">
                       <span className="poker-footer-button-kicker">
-                        Call it now
+                        {catalog.table.callItNow}
                       </span>
                       <strong className="poker-footer-button-label">
-                        Check
+                        {catalog.table.check}
                       </strong>
                     </span>
                   </button>
@@ -1407,7 +2012,7 @@ export function TableView({
           onSetTablePanelOpen(false);
           setIsChatPanelOpen(false);
         }}
-        aria-label="Close side panels"
+        aria-label={catalog.table.closeSidePanels}
         tabIndex={isTablePanelOpen || isChatPanelOpen ? 0 : -1}
       />
 
@@ -1418,8 +2023,8 @@ export function TableView({
       >
         <div className="table-drawer-header">
           <div>
-            <p className="eyebrow">Players</p>
-            <h2>Table order</h2>
+            <p className="eyebrow">{t('players')}</p>
+            <h2>{t('tableOrder')}</h2>
           </div>
 
           <button
@@ -1427,7 +2032,7 @@ export function TableView({
             className="ghost-button"
             onClick={() => onSetTablePanelOpen(false)}
           >
-            Close
+            {t('close')}
           </button>
         </div>
 
@@ -1441,8 +2046,8 @@ export function TableView({
       >
         <div className="table-drawer-header">
           <div>
-            <p className="eyebrow">Chat</p>
-            <h2>Room chat</h2>
+            <p className="eyebrow">{t('chat')}</p>
+            <h2>{t('roomChat')}</h2>
           </div>
 
           <button
@@ -1450,7 +2055,7 @@ export function TableView({
             className="ghost-button"
             onClick={() => setIsChatPanelOpen(false)}
           >
-            Close
+            {t('close')}
           </button>
         </div>
 

@@ -149,13 +149,14 @@ Important details:
 - `settings` are included on every room snapshot
 - `chatMessages` are included on every room snapshot
 - player rows include `isBot`
-- `turnTimer` is included while a match is active
+- `dealing` is included while a round is in the server-owned deal window
+- `turnTimer` is included only while live turn play is active
 - `yourHand` only contains the viewer's own cards
 - public player rows include `cardCount`, not private card identities
 - `showdown` is carried on the snapshot after a challenge resolves
 - `timeout` is carried on the snapshot after a turn expires
-- while `match.phase === 'showing-result'`, the result snapshot stays present
-  but `turnTimer` is intentionally absent
+- while `match.phase === 'dealing'` or `match.phase === 'showing-result'`, the
+  result snapshot stays present but `turnTimer` is intentionally absent
 - when the match ends, the snapshot includes `winnerPlayerId`
 
 The backend always treats snapshots as authoritative render state.
@@ -171,6 +172,10 @@ Current flow:
 3. Server returns a `RoomSession`
 4. Browser stores that session in `localStorage`
 5. Browser opens a Socket.IO connection using that session as auth
+
+Bootstrap failures also return stable error payloads with a machine-readable
+`code` plus an optional fallback `message`, so the web app can localize
+user-facing errors without depending on raw English transport strings.
 
 `RoomSession` contains:
 
@@ -199,7 +204,7 @@ If valid:
 
 If invalid:
 
-- the socket gets `commandRejected`
+- the socket gets `commandRejected` with a stable error `code`
 - the socket is disconnected immediately
 
 ## Current Socket Commands
@@ -224,7 +229,7 @@ Implemented outbound events:
 
 The planning docs mention more granular events like `roundStarted` and
 `showdownResolved`, but the actual implementation currently relies on a single
-snapshot event plus rejection messages.
+snapshot event plus coded rejection payloads.
 
 ## Match Lifecycle In Code
 
@@ -233,7 +238,8 @@ snapshot event plus rejection messages.
 While `room.phase === 'lobby'`:
 
 - players can join
-- the host can add bots until the room reaches `8` seats
+- the host can add bots until the room reaches `8` seats and can remove lobby
+  bots again if needed
 - players can toggle ready state
 - the host can change room settings
 - duplicate display names are rejected per room
@@ -244,6 +250,9 @@ Room settings currently include:
 
 - `eliminationHandSize` in the range `2` to `6`
 - `claimOrderPreset` with three supported presets
+- `flushRule` with `suit-only` and `suit-plus-rank`
+- `showdownDrawRule` with `revealed-only` and `draw-until-miss`
+- `jokerRule` with `off` and `two-jokers`
 - `turnTimeLimitSeconds` in the range `15` to `120`
 
 If the host changes any setting, the server resets human player ready states to
@@ -260,9 +269,10 @@ The match only starts when:
 `startMatch`:
 
 - resets all players to `handSize = 1` and `isEliminated = false`
+- resets all spectator reveal preferences to `false`
 - chooses a random starter seat
-- creates a new round with shuffled/dealt hands
-- starts the first authoritative turn timer
+- creates a new round with shuffled/dealt hands from the room's selected deck
+- enters the server-owned `dealing` phase first, then starts the first authoritative turn timer after the deal hold
 - moves the room to `in-match`
 
 ### During A Round
@@ -272,19 +282,31 @@ The round keeps:
 - `roundNumber`
 - `starterSeatIndex`
 - `currentTurnSeatIndex`
+- `dealing`
 - `turnTimer`
 - `lastClaim`
 - `lastClaimantPlayerId`
 - `claimHistory`
 - `handsByPlayerId`
+- `remainingDeck`
 
 The opening player can make any legal claim. Every later claim must be strictly
 higher according to `compareClaims` using the room's selected
-`claimOrderPreset`.
+`claimOrderPreset`, except that `suit-plus-rank` flushes use a two-axis raise
+rule where the suit and named card may each stay the same or go up, but
+neither axis may go down. The legal flush-claim universe is generated from the
+room's selected `flushRule`. The card pool itself may also include one red and
+one black joker when the room's selected `jokerRule` enables them.
 
 The server also owns the active turn timer. When a player acts successfully,
 the next turn receives a fresh full timer. The host can pause and resume that
 timer without changing the current turn owner.
+
+Eliminated players stay in the room, but once the next live round begins they
+drop out of the active seat layout and appear under a Spectators section in the
+Players drawer instead. Eliminated human viewers also have a private
+`spectatorRevealEnabled` preference that can expose active live hands in their
+own snapshot only.
 
 When the current turn belongs to a bot, the server also schedules a short
 autonomous bot action. The bot strategy uses only the bot's own hand, public
@@ -296,18 +318,22 @@ It does not read other hidden hands directly.
 `challengeClaim`:
 
 1. collects every active player's cards
-2. asks shared rules whether the exact spoken claim exists
+2. asks shared rules whether the exact spoken claim exists under the room's
+   selected showdown draw rule
 3. decides the loser
 4. updates `handSize` or elimination using the room's `eliminationHandSize`
-5. records a showdown snapshot
+5. records a showdown snapshot with `startedAtMs` and any revealed `deckDraws`
 6. moves the match into `showing-result`
 7. blocks turn timers, player commands, and bot turns during that result hold
 8. after the shared display duration expires:
    - finishes the match if one active player remains, or
-   - creates the next round and starts its timer
+   - creates the next round in `dealing`, then starts its timer only after the
+     deal hold completes
 
 The result overlay is server-owned. Clients render it from the snapshot, but
-they do not dismiss it or decide when live play resumes.
+they do not dismiss it or decide when live play resumes. For showdowns, the
+client also keeps success/failure styling and loser copy hidden until the final
+resolve beat, even though the server already knows the outcome.
 
 ### Timing Out
 
@@ -319,11 +345,18 @@ without waiting for another socket command:
 3. active hands are revealed into a timeout summary snapshot
 4. the match moves into `showing-result`
 5. after the shared display duration expires, the match either ends or the next
-   round starts
+   round starts in `dealing`
 
 Late commands are not accepted. Before a claim, check, or pause command is
 processed, the registry first checks whether the turn clock has already expired
 and resolves the timeout if needed.
+
+`RoomRegistry` now also runs the same kind of autonomous recovery before
+building snapshots, attaching reconnecting sockets, and handling room commands.
+If `dealing`, a turn timeout, or a result hold is already overdue according to
+`Date.now()`, the registry resolves that stale phase synchronously and
+reschedules the next authoritative timer. This is the recovery layer that keeps
+rooms from freezing when a timer callback is missed.
 
 ### Restarting
 
@@ -342,15 +375,25 @@ and resolves the timeout if needed.
 The implemented rules are exact-claim rules, not lower-bound rules.
 
 That means a showdown checks whether the spoken claim itself can be formed from
-the revealed shared pool.
+the review pool selected by the room's `showdownDrawRule`:
+
+- `revealed-only`: use the revealed shared pool only
+- `draw-until-miss`: reveal undealt top-deck cards in order while each draw
+  strictly improves progress toward the exact spoken claim, then stop on the
+  first dead draw or when the claim completes
 
 Examples of what the shared rules package currently does:
 
 - `pair of queens` is valid if there are at least two queens
+- `pair of queens` is also valid with one queen plus a joker when jokers are enabled
 - `straight:3` requires exactly the ranks `3 4 5 6 7` to exist
 - `flush:hearts` requires at least five hearts anywhere in the shared pool
+- `flush:hearts:12` requires at least five hearts and the queen of hearts in
+  the shared pool
 - `straight-flush:9:clubs` requires a club 9-to-king straight flush
 - `straight-flush:10:spades` covers what used to be a royal flush
+- red joker may only stand in for diamonds or hearts in suit-based claims
+- black joker may only stand in for clubs or spades in suit-based claims
 
 `resolveShowdown` only decides:
 
@@ -358,6 +401,7 @@ Examples of what the shared rules package currently does:
 - who loses
 - the loser's next `handSize`
 - whether the loser is eliminated
+- which top-deck cards were revealed during a draw-assisted showdown
 
 `applyRoundLoss` is the shared helper the server reuses for timeout losses.
 
@@ -379,7 +423,8 @@ Current routes:
 - `/rooms/:roomCode`: room page
 
 There is no dedicated global state library yet. The room page holds socket
-state in React component state.
+state in React component state, and the app shell also provides a client-owned
+locale context for English and Russian UI catalogs.
 
 ### Session Storage
 
@@ -387,9 +432,11 @@ The browser stores room sessions in `localStorage` under:
 
 - `bluffgame/session/<ROOM_CODE>`
 - `bluffgame/display-name`
+- `bluffgame/locale`
 
 This enables simple reconnect behavior after refresh, as long as the room still
-exists in server memory.
+exists in server memory, while locale choice persists independently per
+browser.
 
 ### Room Page State
 
@@ -399,7 +446,7 @@ exists in server memory.
 - latest `RoomSnapshot`
 - connection state
 - pending command name
-- last error message
+- last transport error payload
 
 When a `roomSnapshot` arrives, the snapshot fully replaces the previous render
 state.
@@ -421,13 +468,18 @@ Current components are intentionally thin:
   a persistent `Check` action placed directly near the claim-to-beat panel
   instead of inside it; on mobile, the match header exposes `Show table` and
   `Show chat` buttons that open separate left and right drawers, and the
-  separate `Selected claim` panel is removed from the stacked mobile layout
-- `RoomChat`: snapshot-backed chat log plus a single send-message form
+  separate `Selected claim` panel is removed from the stacked mobile layout,
+  and eliminated viewers switch to a spectator footer plus a Players drawer
+  split between Active and Spectators rows
+- `RoomChat`: snapshot-backed chat log plus a single send-message form with a
+  dependency-backed emoji picker
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
-  from the room's selected claim-order preset; on mobile, the active category
-  expands inline to reveal its exact rank or suit selectors directly beneath
-  that category instead of using the shared bottom control block, and the
-  submit action appears directly under those inline mobile controls
+  from the room's selected claim-order preset and flush rule; composite claims
+  are spoken progressively by parts, with flushes optionally using a suit-first
+  then named-card flow when the room enables `suit-plus-rank`
+- locale catalogs under `apps/web/src/lib/i18n/`: typed English and Russian
+  UI copy, suit names, combination names, localized face-rank display labels,
+  and transport-error messages
 
 On narrow screens, the web app does not keep the chat rail as a stacked page
 section. The main gameplay stays full width, the unified top play strip stacks
@@ -451,6 +503,9 @@ The current privacy boundary is simple:
 - other players are represented by public rows and `cardCount`
 - all active hands are only revealed through `showdown.revealedHands` or
   `timeout.revealedHands`
+- eliminated human spectators may additionally receive
+  `match.spectator.revealedHands`, but only in their own viewer-specific
+  snapshot and only when they explicitly enable that private toggle
 - bots follow that same privacy model for their decisions even though the
   server process holds all hands in memory
 
@@ -464,11 +519,15 @@ Current implemented behavior:
 - the seat is kept
 - active matches do not auto-skip, auto-remove, or auto-forfeit that player
 - reconnect with the same `playerId` and `sessionToken` restores the session
-- if the host disconnects outside a match, host responsibility may move to the
-  next available player
+- if the host disconnects, a `10` second timer starts; if they do not return in
+  time, host responsibility moves to the next available player
+- a host can move another active player to the spectator rail
+- a human player can use `Stop playing` to become a spectator themselves
+- if a live player becomes a spectator mid-round, the server discards that
+  round and immediately re-deals for the remaining active players
 
-This is deliberately simple and still leaves room for future policies like host
-kicks or disconnect-time pause rules.
+This is still deliberately simple and leaves room for future policies like
+disconnect-time pauses or broader moderation tooling.
 
 ## Differences From The Planning Architecture
 
@@ -478,9 +537,15 @@ The code currently differs from the broader planned architecture in a few ways:
 - the web app uses local component state instead of a dedicated store library
 - there are only two outbound socket event types in use:
   `roomSnapshot` and `commandRejected`
-- the server still collapses `dealing`, but it now keeps an explicit
-  `showing-result` hold instead of jumping straight into the next round
-- there is no rename flow, spectator flow, or kick flow
+- the web app now owns locale selection locally instead of delegating any UI
+  wording or formatting to the server
+- the room lifecycle is still intentionally compact, but rounds now expose both
+  `dealing` and `showing-result` as explicit authoritative match phases
+- there is still no rename flow or open join-as-spectator flow
+- there is now a limited eliminated-player spectator mode with a private reveal
+  toggle
+- there is now a host-controlled kick-to-spectator flow and a self
+  stop-playing flow
 - tests are present for shared rules, but not yet for server integration or
   browser end-to-end flows
 
