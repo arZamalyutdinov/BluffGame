@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>BluffGame - Lobby &amp; Settings</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "error-dim": "#c94947",
+                        "secondary": "#cfbcff",
+                        "inverse-primary": "#006c55",
+                        "tertiary-dim": "#00d4ec",
+                        "error-container": "#8a1a1e",
+                        "on-tertiary-fixed": "#003840",
+                        "surface": "#0b0c1f",
+                        "outline-variant": "#43446b",
+                        "on-secondary-fixed": "#4c00b8",
+                        "inverse-on-surface": "#53536a",
+                        "on-secondary-container": "#b092ff",
+                        "surface-variant": "#202247",
+                        "on-primary-container": "#005b47",
+                        "on-tertiary-container": "#004d57",
+                        "secondary-dim": "#844eff",
+                        "on-surface": "#e4e3ff",
+                        "outline": "#70729c",
+                        "secondary-fixed": "#e9ddff",
+                        "secondary-fixed-dim": "#dccdff",
+                        "tertiary": "#81ecff",
+                        "on-primary": "#00654f",
+                        "on-primary-fixed": "#004535",
+                        "surface-container-high": "#1b1c3c",
+                        "background": "#0b0c1f",
+                        "on-secondary-fixed-variant": "#6b1ef3",
+                        "surface-dim": "#0b0c1f",
+                        "surface-container-low": "#101128",
+                        "surface-container-highest": "#202247",
+                        "tertiary-container": "#00e3fd",
+                        "on-primary-fixed-variant": "#00644f",
+                        "on-background": "#e4e3ff",
+                        "primary-container": "#00fcca",
+                        "surface-container": "#151732",
+                        "tertiary-fixed": "#00e3fd",
+                        "error": "#ff716c",
+                        "on-surface-variant": "#a6a7d4",
+                        "on-secondary": "#4d00bb",
+                        "tertiary-fixed-dim": "#00d4ec",
+                        "surface-tint": "#a8ffe1",
+                        "primary-fixed": "#00f9c7",
+                        "primary": "#a8ffe1",
+                        "inverse-surface": "#fbf8ff",
+                        "surface-bright": "#262852",
+                        "primary-dim": "#00eabb",
+                        "on-tertiary": "#005762",
+                        "on-tertiary-fixed-variant": "#005762",
+                        "on-error-container": "#ff9993",
+                        "secondary-container": "#2e0077",
+                        "surface-container-lowest": "#000000",
+                        "primary-fixed-dim": "#00eabb",
+                        "on-error": "#490006"
+                    },
+                    fontFamily: {
+                        "headline": ["Plus Jakarta Sans"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "1rem", "xl": "1.5rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(32, 34, 71, 0.4);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(207, 188, 255, 0.1);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 15px rgba(168, 255, 225, 0.3);
+        }
+        body {
+            background-color: #0b0c1f;
+            color: #e4e3ff;
+        }
+    </style>
+</head>
+<body class="font-body selection:bg-primary/30 min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<nav class="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-black/80 backdrop-blur-xl border-b border-[#cfbcff]/15 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+    <div class="flex items-center gap-8">
+        <span class="text-2xl font-black text-[#a8ffe1] drop-shadow-[0_0_8px_rgba(168,255,225,0.4)] font-headline tracking-tight">BluffGame</span>
+        <div class="hidden md:flex gap-6">
+            <a class="text-[#a8ffe1] font-['Plus_Jakarta_Sans'] font-bold tracking-tight transition-colors duration-300" href="#">Snapshot-driven play</a>
+        </div>
+    </div>
+    <div class="flex items-center gap-4">
+        <span class="bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold border border-primary/20">2,405 Active Players</span>
+        <div class="flex gap-2">
+            <button class="p-2 text-[#a6a7d4] hover:text-[#a8ffe1] transition-colors"><span class="material-symbols-outlined">notifications</span></button>
+            <button class="p-2 text-[#a6a7d4] hover:text-[#a8ffe1] transition-colors"><span class="material-symbols-outlined">settings</span></button>
+        </div>
+    </div>
+</nav>
+<!-- SideNavBar (Desktop) -->
+<aside class="fixed left-0 top-0 h-full hidden md:flex flex-col pt-24 pb-8 w-64 bg-[#000000]/90 backdrop-blur-2xl border-r border-[#cfbcff]/10 shadow-[20px_0_40px_rgba(0,0,0,0.6)] z-40">
+    <div class="px-6 mb-8 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-full bg-gradient-to-br from-secondary to-primary-container p-[1px]">
+            <img alt="Player Profile" class="w-full h-full rounded-full bg-surface-container" data-alt="Cyberpunk avatar of a game dealer" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCEE619PW230m_hSq2el8W9PU1SIiYudpxbO_D4BQCg0HntQVw-xxT2hOMGV182MhA7YGw5y4MzEOTnVwsSzvmRZ4mXUUnqXNLnzs8LG3zanzYDYP4iYhsWhUjiRxjVaWaFU4975y9lH8PrywbuEMe_aDxGVYaBm40lWnK0g-z75FgGz8hJwoDMmB2Thbzy6Xzv5FwBYym9Q06KSggTI-8JnA9b9aX3U8el70y3CBvyUdfG_GqOj3iM23_QwH8w5hoSNXbpUozIFAY"/>
+        </div>
+        <div>
+            <p class="text-on-surface font-headline font-bold text-sm">The Dealer</p>
+            <p class="text-on-surface-variant text-[10px] uppercase tracking-wider">Level 42 Phantom</p>
+        </div>
+    </div>
+    <nav class="flex-1 flex flex-col gap-1">
+        <a class="bg-gradient-to-r from-[#a8ffe1]/20 to-transparent text-[#a8ffe1] border-l-4 border-[#a8ffe1] py-3 px-6 flex items-center gap-3 font-headline uppercase tracking-[0.05rem] text-xs" href="#">
+            <span class="material-symbols-outlined">grid_view</span> Lobby
+        </a>
+        <a class="text-[#a6a7d4] py-3 px-6 opacity-70 hover:bg-white/5 hover:text-[#a8ffe1] transition-all flex items-center gap-3 font-headline uppercase tracking-[0.05rem] text-xs" href="#">
+            <span class="material-symbols-outlined">payments</span> High Stakes
+        </a>
+        <a class="text-[#a6a7d4] py-3 px-6 opacity-70 hover:bg-white/5 hover:text-[#a8ffe1] transition-all flex items-center gap-3 font-headline uppercase tracking-[0.05rem] text-xs" href="#">
+            <span class="material-symbols-outlined">emoji_events</span> Tournaments
+        </a>
+        <a class="text-[#a6a7d4] py-3 px-6 opacity-70 hover:bg-white/5 hover:text-[#a8ffe1] transition-all flex items-center gap-3 font-headline uppercase tracking-[0.05rem] text-xs" href="#">
+            <span class="material-symbols-outlined">history</span> History
+        </a>
+        <a class="text-[#a6a7d4] py-3 px-6 opacity-70 hover:bg-white/5 hover:text-[#a8ffe1] transition-all flex items-center gap-3 font-headline uppercase tracking-[0.05rem] text-xs" href="#">
+            <span class="material-symbols-outlined">account_balance_wallet</span> Vault
+        </a>
+    </nav>
+    <div class="mt-auto px-6 space-y-4">
+        <button class="w-full py-3 bg-gradient-to-br from-primary to-primary-container text-on-primary-container rounded-xl font-bold text-xs uppercase tracking-widest neon-glow-primary active:scale-95 transition-transform">Quick Join</button>
+        <div class="pt-4 border-t border-outline-variant/20 flex flex-col gap-2">
+            <a class="flex items-center gap-2 text-on-surface-variant text-[10px] uppercase tracking-wider hover:text-primary transition-colors" href="#">
+                <span class="material-symbols-outlined text-sm">bolt</span> Live Updates
+            </a>
+            <a class="flex items-center gap-2 text-on-surface-variant text-[10px] uppercase tracking-wider hover:text-primary transition-colors" href="#">
+                <span class="material-symbols-outlined text-sm">help_outline</span> Support
+            </a>
+        </div>
+    </div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="md:ml-64 pt-24 pb-24 px-6 md:px-12 flex-1">
+    <div class="max-w-6xl mx-auto">
+        <!-- Header Section -->
+        <header class="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6">
+            <div>
+                <span class="text-primary-dim uppercase tracking-[0.2rem] text-xs font-bold mb-2 block">Current Lobby</span>
+                <h1 class="text-5xl md:text-7xl font-headline font-extrabold text-on-surface tracking-tighter drop-shadow-2xl">Room VCNE</h1>
+            </div>
+            <!-- Lobby Action Buttons -->
+            <div class="flex flex-wrap gap-3">
+                <button class="glass-card flex items-center gap-2 px-6 py-3 rounded-xl border border-primary/20 text-primary font-bold hover:bg-primary/10 transition-all active:scale-95">
+                    <span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+                    Mark ready
+                </button>
+                <button class="glass-card flex items-center gap-2 px-6 py-3 rounded-xl border border-secondary/20 text-secondary font-bold hover:bg-secondary/10 transition-all active:scale-95">
+                    <span class="material-symbols-outlined text-xl">person_add</span>
+                    Add bot
+                </button>
+                <button class="bg-gradient-to-r from-primary to-primary-container text-on-primary-container flex items-center gap-2 px-8 py-3 rounded-xl font-black neon-glow-primary hover:scale-105 transition-all active:scale-90">
+                    <span class="material-symbols-outlined text-xl" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+                    Start match
+                </button>
+            </div>
+        </header>
+        <!-- Two-Column Layout (Bento Style) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <!-- Left: House Rules Settings -->
+            <section class="lg:col-span-5 space-y-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="material-symbols-outlined text-secondary">tune</span>
+                    <h2 class="font-headline font-bold text-xl uppercase tracking-wider text-secondary">House Rules</h2>
+                </div>
+                <div class="glass-card p-6 rounded-xl space-y-6 relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 w-32 h-32 bg-secondary/5 blur-3xl rounded-full"></div>
+                    <!-- Setting: Combination Order -->
+                    <div class="space-y-2">
+                        <label class="block text-[10px] uppercase tracking-[0.1rem] text-on-surface-variant font-bold">Combination order</label>
+                        <div class="relative">
+                            <select class="w-full bg-surface-container-lowest border border-outline-variant/30 text-on-surface rounded-xl px-4 py-3 appearance-none focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all cursor-pointer">
+                                <option>Standard Poker</option>
+                                <option selected="">Flush below straight</option>
+                                <option>Short Deck</option>
+                            </select>
+                            <span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant">expand_more</span>
+                        </div>
+                    </div>
+                    <!-- Setting: Eliminate hand size -->
+                    <div class="space-y-2">
+                        <label class="block text-[10px] uppercase tracking-[0.1rem] text-on-surface-variant font-bold">Eliminate at hand size</label>
+                        <div class="relative">
+                            <select class="w-full bg-surface-container-lowest border border-outline-variant/30 text-on-surface rounded-xl px-4 py-3 appearance-none focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all cursor-pointer">
+                                <option>3 cards</option>
+                                <option selected="">5 cards</option>
+                                <option>7 cards</option>
+                                <option>10 cards</option>
+                            </select>
+                            <span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant">expand_more</span>
+                        </div>
+                    </div>
+                    <!-- Setting: Turn Timer -->
+                    <div class="space-y-2">
+                        <label class="block text-[10px] uppercase tracking-[0.1rem] text-on-surface-variant font-bold">Turn timer</label>
+                        <div class="relative">
+                            <select class="w-full bg-surface-container-lowest border border-outline-variant/30 text-on-surface rounded-xl px-4 py-3 appearance-none focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all cursor-pointer">
+                                <option>15 seconds</option>
+                                <option>30 seconds</option>
+                                <option selected="">60 seconds</option>
+                                <option>Unlimited</option>
+                            </select>
+                            <span class="material-symbols-outlined absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant">expand_more</span>
+                        </div>
+                    </div>
+                    <!-- Visual Flare -->
+                    <div class="pt-4 border-t border-outline-variant/10">
+                        <div class="flex items-center justify-between text-[10px] text-on-surface-variant font-mono">
+                            <span>CONFIG_TOKEN: BLF_09X1</span>
+                            <span class="text-primary/40 text-xs">● LOBBY_HOST_ONLY</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            <!-- Right: Seat Order (Player Cards) -->
+            <section class="lg:col-span-7 space-y-6">
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="material-symbols-outlined text-primary">groups</span>
+                    <h2 class="font-headline font-bold text-xl uppercase tracking-wider text-primary">Seat Order</h2>
+                </div>
+                <div class="space-y-3">
+                    <!-- Player Card: YOU (Host) -->
+                    <div class="glass-card p-4 rounded-xl border-l-4 border-primary flex items-center justify-between hover:translate-x-1 transition-transform cursor-pointer shadow-lg shadow-primary/5">
+                        <div class="flex items-center gap-4">
+                            <div class="relative">
+                                <img alt="Player" class="w-12 h-12 rounded-full bg-surface-container border border-primary/40 p-0.5" data-alt="Avatar of current user" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA-PKca1pmLyxYGkhOFBOOH14kll9tAc30pq2fdNp6WkbL1RrJmKeu6LGzXlQDt7n4oNCk6uIvahh9q1Qj9zLyX2TzJ7Yaw1b4IN8AuA0sUTXO2vO0Hwf4CcZDo3K0CKtgCc5cuHlMPKTqQKUhNrugtflDH3lfqtKoVF7jf9ys-BqnNefFa5fKBZbpyEeq_GeX-fiIN2r18bAey1EbKrlcLnktMAU-Rq8QcRevb1cgg-j7Io9LnufuQAgkBoc3-vYyVvyej0OdixD0"/>
+                                <div class="absolute -bottom-1 -right-1 bg-primary text-on-primary-fixed rounded-full px-1.5 py-0.5 text-[8px] font-black uppercase tracking-tighter">YOU</div>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="font-headline font-bold text-on-surface">Test</h3>
+                                    <span class="bg-secondary/20 text-secondary text-[8px] px-1.5 py-0.5 rounded-full uppercase font-bold tracking-widest border border-secondary/10">Host</span>
+                                </div>
+                                <p class="text-on-surface-variant text-xs">Professional Bluffing since 2024</p>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-4">
+                            <div class="flex flex-col items-end">
+                                <span class="text-[8px] uppercase tracking-widest text-primary/60 font-bold">Status</span>
+                                <span class="text-primary font-black text-sm uppercase tracking-widest">READY</span>
+                            </div>
+                            <span class="material-symbols-outlined text-primary drop-shadow-[0_0_8px_rgba(168,255,225,0.6)]" style="font-variation-settings: 'FILL' 1;">verified</span>
+                        </div>
+                    </div>
+                    <!-- Player Card: Johrser -->
+                    <div class="glass-card p-4 rounded-xl flex items-center justify-between opacity-90 hover:opacity-100 transition-opacity group">
+                        <div class="flex items-center gap-4">
+                            <img alt="Player" class="w-12 h-12 rounded-full bg-surface-container-high border border-outline-variant/20 p-0.5" data-alt="Cyberpunk character avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA5YO9jQYIDaXNgtRXL0c2eQi5iuukS4p13fLwMWPN0IUHTtQb7b6lTjMx5Ub66iTW1v_QQEt2nStHqlZjv6XOd8uLTtkaKo3ZnJSko6sxfkpa5soZhjII32InfXui-QRqh5cpAO8zXbNi7QioJP9rXX4fQptjv4na1lUyMjJjZM22Mpaib7HTgxmcli0go__Af9Ciy6j_C0QjxfnnCBsT4TjtkEUMWzkiFyvNCbOazbXXQkZs5XMQa5oXaZtv3jwEWU2bWPnumdiQ"/>
+                            <div>
+                                <h3 class="font-headline font-bold text-on-surface group-hover:text-secondary transition-colors">Johrser</h3>
+                                <p class="text-on-surface-variant text-xs">High Stakes Challenger</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase tracking-widest text-on-surface-variant font-bold">Status</span>
+                            <span class="bg-surface-container-highest text-on-surface-variant px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border border-outline-variant/20">Connected</span>
+                        </div>
+                    </div>
+                    <!-- Player Card: Aristah -->
+                    <div class="glass-card p-4 rounded-xl flex items-center justify-between opacity-90 hover:opacity-100 transition-opacity">
+                        <div class="flex items-center gap-4">
+                            <img alt="Player" class="w-12 h-12 rounded-full bg-surface-container-high border border-outline-variant/20 p-0.5" data-alt="Futuristic player profile image" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDiyo-4gkpkoXv7B_XSVEAYHiodcFfcfJREn0KIDDWIqhSMmQ9uPoD7X2OFxysj_wz14vssGXxra6dzbUppN-Yhlr7V7KVWEw4TIutWJEItqztewvQzfuPGKt_ynNDhSayuwWaaWjuGpCtR8NOWgIX6mYCQOpq_YQGrVP9Su1tdNpD-nI_bjy-ObgpFZ80gJP8f2sCU2efqwtm3Eo2eWle25lAN0C72YP2TeUZGKEfU_MbO5LRaebDvKBh0pDiCU6Iaoz9vKBfVYpI"/>
+                            <div>
+                                <h3 class="font-headline font-bold text-on-surface">Aristah</h3>
+                                <p class="text-on-surface-variant text-xs">Master of Deception</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase tracking-widest text-primary/60 font-bold">Status</span>
+                            <span class="text-primary font-black text-xs uppercase tracking-widest">READY</span>
+                        </div>
+                    </div>
+                    <!-- Player Card: Kinny Rogh (Bot) -->
+                    <div class="glass-card p-4 rounded-xl flex items-center justify-between opacity-80 hover:opacity-100 transition-opacity">
+                        <div class="flex items-center gap-4">
+                            <div class="relative">
+                                <img alt="Bot" class="w-12 h-12 rounded-full bg-surface-container-high border border-outline-variant/20 p-0.5" data-alt="Mechanical robot avatar" src="https://lh3.googleusercontent.com/aida-public/AB6AXuA9CchEn8PH1I0L_Wk9qR-xufj2Yzz_Tk5U01fPI2Z3BFPHjPY8a7Okt64saWuIBEiFw16eTGsPnnRaWd8R8NIASYJqqkGBJbTmCLJay_0jw7y-mvkE2uU_qCiiR8fZpz0pn2c83YGPPHM-JWcqzVWiLMxawxLiIGWsuAIFAWZoXvbv5DG5iyX6M8VK-qeFIK5Bi8gSxkMmn_wJftOhm3c7zJn0wBmVV0vM72purKBpD_76YnqsXiUVZ2fLGxuzAeVjz19TglLy5HE"/>
+                                <span class="absolute -top-1 -right-1 bg-outline-variant text-[8px] px-1 rounded uppercase font-bold text-on-surface">CPU</span>
+                            </div>
+                            <div>
+                                <h3 class="font-headline font-bold text-on-surface italic">Kinny Rogh</h3>
+                                <p class="text-on-surface-variant text-xs">Aggressive Logic Engine</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase tracking-widest text-primary/60 font-bold">Status</span>
+                            <span class="text-primary font-black text-xs uppercase tracking-widest">READY</span>
+                        </div>
+                    </div>
+                    <!-- Player Card: Alexandaium -->
+                    <div class="glass-card p-4 rounded-xl flex items-center justify-between opacity-90">
+                        <div class="flex items-center gap-4">
+                            <img alt="Player" class="w-12 h-12 rounded-full bg-surface-container-high border border-outline-variant/20 p-0.5" data-alt="Profile picture for Alexandaium" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAcw0WhaZUf28uIZUFgRyjwZsSnTu04kN5DGXUAbYWvR0JJdQWk1FXCcctL5W1Wxn-dl0McFKwPivdfxBydbRUl28ijSMp0OfE1eqrH9nchqlFPKbUrIQA64uj11ZWAXcLFRk7bGi385RHmOnh-D5r9VWBsBkxuU3oVHxSgI-xqo2sClnuqan0c1hb6isCNH7nUhSomsTocV3y9ndUYWvWsjQ5d7u89FYD1YO3FTESCUmSPpgmfnLrlMdyDZ223rxo1n3eomvkRco4"/>
+                            <div>
+                                <h3 class="font-headline font-bold text-on-surface">Alexandaium</h3>
+                                <p class="text-on-surface-variant text-xs">Silent Watcher</p>
+                            </div>
+                        </div>
+                        <div class="flex flex-col items-end">
+                            <span class="text-[8px] uppercase tracking-widest text-on-surface-variant font-bold">Status</span>
+                            <span class="bg-surface-container-highest text-on-surface-variant px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border border-outline-variant/20">Connected</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </div>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 w-full z-50 flex justify-around items-center py-3 bg-[#000000]/80 backdrop-blur-lg border-t border-[#cfbcff]/15 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] rounded-t-[1.5rem]">
+    <a class="flex flex-col items-center justify-center text-[#a8ffe1] drop-shadow-[0_0_10px_rgba(168,255,225,0.6)] hover:scale-110 transition-transform active:scale-90 duration-150" href="#">
+        <span class="material-symbols-outlined">style</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Tables</span>
+    </a>
+    <a class="flex flex-col items-center justify-center text-[#a6a7d4]/60 hover:scale-110 transition-transform active:scale-90 duration-150" href="#">
+        <span class="material-symbols-outlined">casino</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Bluff</span>
+    </a>
+    <a class="flex flex-col items-center justify-center text-[#a6a7d4]/60 hover:scale-110 transition-transform active:scale-90 duration-150" href="#">
+        <span class="material-symbols-outlined">groups</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Social</span>
+    </a>
+    <a class="flex flex-col items-center justify-center text-[#a6a7d4]/60 hover:scale-110 transition-transform active:scale-90 duration-150" href="#">
+        <span class="material-symbols-outlined">person</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Profile</span>
+    </a>
+</nav>
+</body></html>

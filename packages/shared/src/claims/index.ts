@@ -9,6 +9,9 @@ import {
 import {
   type ClaimOrderPreset,
   DEFAULT_CLAIM_ORDER_PRESET,
+  DEFAULT_FLUSH_RULE,
+  FLUSH_RULES,
+  type FlushRule,
 } from '../settings/index.js';
 
 export const CLAIM_CATEGORIES = [
@@ -122,6 +125,7 @@ export type StraightClaim = {
 export type FlushClaim = {
   category: 'flush';
   suit: Suit;
+  rank?: Rank;
 };
 
 export type FullHouseClaim = {
@@ -216,7 +220,10 @@ function createCategoryStrengthMap(
   return strengths;
 }
 
-function categoryClaimsFor(category: ClaimCategory): Claim[] {
+function categoryClaimsFor(
+  category: ClaimCategory,
+  flushRule: FlushRule = DEFAULT_FLUSH_RULE,
+): Claim[] {
   switch (category) {
     case 'high-card':
       return RANKS.map((rank) => ({ category, rank }));
@@ -246,7 +253,15 @@ function categoryClaimsFor(category: ClaimCategory): Claim[] {
     case 'straight':
       return STRAIGHT_LOW_RANKS.map((lowRank) => ({ category, lowRank }));
     case 'flush':
-      return SUITS.map((suit) => ({ category, suit }));
+      return flushRule === 'suit-plus-rank'
+        ? SUITS.flatMap((suit) =>
+            RANKS.map((rank) => ({
+              category,
+              suit,
+              rank,
+            })),
+          )
+        : SUITS.map((suit) => ({ category, suit }));
     case 'full-house': {
       const claims: Claim[] = [];
 
@@ -286,7 +301,7 @@ function categoryClaimsFor(category: ClaimCategory): Claim[] {
   }
 }
 
-const allClaimsCache = new Map<ClaimOrderPreset, Claim[]>();
+const allClaimsCache = new Map<string, Claim[]>();
 const categoryStrengthCache = new Map<
   ClaimOrderPreset,
   Record<ClaimCategory, number>
@@ -311,7 +326,9 @@ export function claimToComparisonTuple(claim: Claim): number[] {
     case 'straight':
       return [claim.lowRank];
     case 'flush':
-      return [suitStrength(claim.suit)];
+      return claim.rank === undefined
+        ? [suitStrength(claim.suit)]
+        : [suitStrength(claim.suit), claim.rank];
     case 'full-house':
       return [claim.tripRank, claim.pairRank];
     case 'four-of-a-kind':
@@ -325,6 +342,7 @@ export function compareClaims(
   left: Claim,
   right: Claim,
   preset: ClaimOrderPreset = DEFAULT_CLAIM_ORDER_PRESET,
+  flushRule: FlushRule = DEFAULT_FLUSH_RULE,
 ): number {
   const categoryStrength =
     categoryStrengthCache.get(preset) ?? createCategoryStrengthMap(preset);
@@ -335,6 +353,31 @@ export function compareClaims(
 
   if (categoryDelta !== 0) {
     return categoryDelta;
+  }
+
+  if (
+    flushRule === 'suit-plus-rank' &&
+    left.category === 'flush' &&
+    right.category === 'flush' &&
+    left.rank !== undefined &&
+    right.rank !== undefined
+  ) {
+    const suitDelta = suitStrength(left.suit) - suitStrength(right.suit);
+    const rankDelta = left.rank - right.rank;
+
+    if (suitDelta === 0 && rankDelta === 0) {
+      return 0;
+    }
+
+    if (suitDelta >= 0 && rankDelta >= 0) {
+      return 1;
+    }
+
+    if (suitDelta <= 0 && rankDelta <= 0) {
+      return -1;
+    }
+
+    return 0;
   }
 
   const leftTuple = claimToComparisonTuple(left);
@@ -356,12 +399,13 @@ export function isClaimStrictlyHigher(
   nextClaim: Claim,
   previousClaim?: Claim,
   preset: ClaimOrderPreset = DEFAULT_CLAIM_ORDER_PRESET,
+  flushRule: FlushRule = DEFAULT_FLUSH_RULE,
 ): boolean {
   if (!previousClaim) {
     return true;
   }
 
-  return compareClaims(nextClaim, previousClaim, preset) > 0;
+  return compareClaims(nextClaim, previousClaim, preset, flushRule) > 0;
 }
 
 export function claimToKey(claim: Claim): string {
@@ -377,7 +421,9 @@ export function claimToKey(claim: Claim): string {
     case 'straight':
       return `straight:${claim.lowRank}`;
     case 'flush':
-      return `flush:${claim.suit}`;
+      return claim.rank === undefined
+        ? `flush:${claim.suit}`
+        : `flush:${claim.suit}:${claim.rank}`;
     case 'full-house':
       return `full-house:${claim.tripRank}:${claim.pairRank}`;
     case 'four-of-a-kind':
@@ -400,7 +446,9 @@ export function claimToLabel(claim: Claim): string {
     case 'straight':
       return `${STRAIGHT_LOW_RANK_WORDS[claim.lowRank]}-low straight`;
     case 'flush':
-      return `${claim.suit} flush`;
+      return claim.rank === undefined
+        ? `${claim.suit} flush`
+        : `${claim.suit} flush with ${RANK_WORDS_SINGULAR[claim.rank]}`;
     case 'full-house':
       return `${RANK_WORDS_PLURAL[claim.tripRank]} full of ${RANK_WORDS_PLURAL[claim.pairRank]}`;
     case 'four-of-a-kind':
@@ -423,7 +471,9 @@ export function claimToCompactLabel(claim: Claim): string {
     case 'straight':
       return `${STRAIGHT_LOW_RANK_LABELS[claim.lowRank]}-low straight`;
     case 'flush':
-      return `${SUIT_SYMBOLS[claim.suit]} flush`;
+      return claim.rank === undefined
+        ? `${SUIT_SYMBOLS[claim.suit]} flush`
+        : `${SUIT_SYMBOLS[claim.suit]} flush + ${RANK_LABELS[claim.rank]}`;
     case 'full-house':
       return `${RANK_SHORT_PLURAL_LABELS[claim.tripRank]} full of ${RANK_SHORT_PLURAL_LABELS[claim.pairRank]}`;
     case 'four-of-a-kind':
@@ -504,10 +554,16 @@ export function parseClaimKey(key: string): Claim {
         lowRank: parseStraightLowRank(firstValue ?? ''),
       };
     case 'flush':
-      return {
-        category,
-        suit: parseSuit(firstValue ?? ''),
-      };
+      return secondValue
+        ? {
+            category,
+            suit: parseSuit(firstValue ?? ''),
+            rank: parseRank(secondValue),
+          }
+        : {
+            category,
+            suit: parseSuit(firstValue ?? ''),
+          };
     case 'full-house': {
       const tripRank = parseRank(firstValue ?? '');
       const pairRank = parseRank(secondValue ?? '');
@@ -542,24 +598,28 @@ export function parseClaimKey(key: string): Claim {
 
 export function getAllClaims(
   preset: ClaimOrderPreset = DEFAULT_CLAIM_ORDER_PRESET,
+  flushRule: FlushRule = DEFAULT_FLUSH_RULE,
 ): Claim[] {
-  const cached = allClaimsCache.get(preset);
+  const cacheKey = `${preset}:${flushRule}`;
+  const cached = allClaimsCache.get(cacheKey);
 
   if (cached) {
     return cached;
   }
 
   const claims = getClaimCategoryOrder(preset).flatMap((category) =>
-    categoryClaimsFor(category),
+    categoryClaimsFor(category, flushRule),
   );
-  allClaimsCache.set(preset, claims);
+  allClaimsCache.set(cacheKey, claims);
   return claims;
 }
 
 export const ALL_CLAIMS = getAllClaims();
 
-const allClaimUniverse = CLAIM_CATEGORIES.flatMap((category) =>
-  categoryClaimsFor(category),
+const allClaimUniverse = FLUSH_RULES.flatMap((flushRule) =>
+  CLAIM_CATEGORIES.flatMap((category) =>
+    categoryClaimsFor(category, flushRule),
+  ),
 );
 
 export const CLAIMS_BY_KEY = new Map(

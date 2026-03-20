@@ -1,24 +1,29 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  type AppErrorCode,
   type Card,
   type Claim,
   type ClaimRecordSnapshot,
   DEFAULT_ROOM_SETTINGS,
+  type DealingSnapshot,
   MAX_CHAT_MESSAGE_LENGTH,
   MAX_ROOM_CHAT_MESSAGES,
   type MatchPhase,
+  type RevealedHandSnapshot,
   type RoomChatMessageSnapshot,
   type RoomSettings,
   type RoomSnapshot,
   type ShowdownSnapshot,
   type TimeoutSnapshot,
   applyRoundLoss,
+  calculateDealingDurationMs,
   calculateResolutionDisplayDurationMs,
-  compareClaims,
   createDeck,
   dealCards,
+  getDefaultAppErrorMessage,
   getNextActiveSeatIndex,
+  isClaimStrictlyHigher,
   normalizeRoomSettings,
   parseClaimKey,
   resolveShowdown,
@@ -35,8 +40,9 @@ import {
 
 class CommandError extends Error {
   constructor(
-    message: string,
+    readonly code: AppErrorCode,
     readonly statusCode = 400,
+    message = getDefaultAppErrorMessage(code),
   ) {
     super(message);
   }
@@ -54,6 +60,7 @@ interface PlayerState {
   connectionStatus: 'connected' | 'disconnected';
   handSize: number;
   isEliminated: boolean;
+  spectatorRevealEnabled: boolean;
 }
 
 interface RoundState {
@@ -64,11 +71,13 @@ interface RoundState {
   lastClaimantPlayerId?: string | undefined;
   claimHistory: ClaimRecordSnapshot[];
   handsByPlayerId: Record<string, Card[]>;
+  remainingDeck: Card[];
 }
 
 interface MatchState {
   phase: MatchPhase;
   round: RoundState;
+  dealing?: DealingSnapshot | undefined;
   turnTimer?: TurnTimerState | undefined;
   winnerPlayerId?: string | undefined;
   lastShowdown?: ShowdownSnapshot | undefined;
@@ -109,6 +118,7 @@ interface RoomRegistryOptions {
 
 const MAX_ROOM_PLAYERS = 8;
 const BOT_ACTION_DELAY_MS = 900;
+const HOST_REASSIGN_DELAY_MS = 10_000;
 
 function createRoomCode(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
@@ -149,10 +159,21 @@ function getNextSeatIndex(room: RoomState): number {
   return Math.max(-1, ...room.players.map((player) => player.seatIndex)) + 1;
 }
 
+function reindexLobbySeats(players: PlayerState[]): PlayerState[] {
+  return sortPlayersBySeat(players).map((player, seatIndex) => ({
+    ...player,
+    seatIndex,
+  }));
+}
+
 export class RoomRegistry {
   private readonly rooms = new Map<string, RoomState>();
   private readonly roomQueues = new Map<string, Promise<void>>();
   private readonly turnTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly dealingHoldTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
@@ -161,6 +182,10 @@ export class RoomRegistry {
     ReturnType<typeof setTimeout>
   >();
   private readonly resultHoldTimers = new Map<
+    string,
+    ReturnType<typeof setTimeout>
+  >();
+  private readonly hostReassignmentTimers = new Map<
     string,
     ReturnType<typeof setTimeout>
   >();
@@ -203,12 +228,13 @@ export class RoomRegistry {
 
   buildSnapshot(code: string, viewerPlayerId: string): RoomSnapshot {
     const room = this.requireRoom(code);
+    this.healAutonomousState(room);
     const viewer = room.players.find(
       (player) => player.playerId === viewerPlayerId,
     );
 
     if (!viewer) {
-      throw new CommandError('Viewer is not part of this room.', 404);
+      throw new CommandError('viewer-not-in-room', 404);
     }
 
     const players = sortPlayersBySeat(room.players).map((player) => ({
@@ -252,6 +278,27 @@ export class RoomRegistry {
           room.match.round.handsByPlayerId[viewerPlayerId] ?? [],
         ),
       };
+
+      if (viewer.isEliminated && !viewer.isBot) {
+        matchSnapshot.spectator = {
+          isSpectator: true,
+          revealCardsEnabled: viewer.spectatorRevealEnabled,
+          ...(viewer.spectatorRevealEnabled &&
+          room.match.phase !== 'showing-result' &&
+          room.match.phase !== 'match-complete'
+            ? {
+                revealedHands: this.buildSpectatorRevealedHands(
+                  room,
+                  viewer.playerId,
+                ),
+              }
+            : {}),
+        };
+      }
+
+      if (room.match.dealing) {
+        matchSnapshot.dealing = room.match.dealing;
+      }
 
       if (room.match.turnTimer) {
         const remainingMs = room.match.turnTimer.isPaused
@@ -302,7 +349,7 @@ export class RoomRegistry {
     const name = sanitizeDisplayName(displayName);
 
     if (!name) {
-      throw new CommandError('Display name is required.');
+      throw new CommandError('display-name-required');
     }
 
     let code = createRoomCode();
@@ -333,6 +380,7 @@ export class RoomRegistry {
           connectionStatus: 'disconnected',
           handSize: 1,
           isEliminated: false,
+          spectatorRevealEnabled: false,
         },
       ],
     };
@@ -352,19 +400,17 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
 
       if (room.phase !== 'lobby') {
-        throw new CommandError(
-          'You can only join rooms that are still in the lobby.',
-        );
+        throw new CommandError('room-join-lobby-only');
       }
 
       if (room.players.length >= MAX_ROOM_PLAYERS) {
-        throw new CommandError('This room is already full.');
+        throw new CommandError('room-full');
       }
 
       const name = sanitizeDisplayName(displayName);
 
       if (!name) {
-        throw new CommandError('Display name is required.');
+        throw new CommandError('display-name-required');
       }
 
       this.assertDisplayNameAvailable(room, name);
@@ -384,6 +430,7 @@ export class RoomRegistry {
         connectionStatus: 'disconnected',
         handSize: 1,
         isEliminated: false,
+        spectatorRevealEnabled: false,
       });
       room.playerReadsById[playerId] = createBotRead();
 
@@ -404,19 +451,20 @@ export class RoomRegistry {
   }): Promise<AttachConnectionResult> {
     return this.withRoomLock(input.roomCode, () => {
       const room = this.requireRoom(input.roomCode);
+      this.healAutonomousState(room);
       const player = this.requirePlayer(room, input.playerId);
 
       if (player.sessionToken !== input.sessionToken) {
-        throw new CommandError(
-          'Session token is invalid for this player.',
-          401,
-        );
+        throw new CommandError('invalid-session-token', 401);
       }
 
       const previousSocketId = player.socketId;
 
       player.socketId = input.socketId;
       player.connectionStatus = 'connected';
+      if (room.hostPlayerId === player.playerId) {
+        this.clearHostReassignment(room.code);
+      }
 
       return {
         roomCode: room.code,
@@ -444,8 +492,9 @@ export class RoomRegistry {
 
       player.socketId = undefined;
       player.connectionStatus = 'disconnected';
-
-      this.maybeReassignHost(room, player.playerId);
+      if (room.hostPlayerId === player.playerId) {
+        this.scheduleHostReassignment(room, player.playerId);
+      }
     });
   }
 
@@ -454,9 +503,7 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
 
       if (room.phase === 'in-match') {
-        throw new CommandError(
-          'Leaving during an active match is not supported in v1.',
-        );
+        throw new CommandError('leave-during-match-unsupported');
       }
 
       room.players = room.players.filter(
@@ -468,6 +515,7 @@ export class RoomRegistry {
         this.clearTurnTimeout(code);
         this.clearBotTurn(code);
         this.clearResultHold(code);
+        this.clearHostReassignment(code);
         this.rooms.delete(code);
         return;
       }
@@ -481,15 +529,13 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
 
       if (room.phase !== 'lobby') {
-        throw new CommandError(
-          'Bots can only be added while the room is in the lobby.',
-        );
+        throw new CommandError('bot-add-lobby-only');
       }
 
       this.assertHost(room, playerId);
 
       if (room.players.length >= MAX_ROOM_PLAYERS) {
-        throw new CommandError('This room is already full.');
+        throw new CommandError('room-full');
       }
 
       const botPlayerId = randomUUID();
@@ -507,8 +553,32 @@ export class RoomRegistry {
         connectionStatus: 'connected',
         handSize: 1,
         isEliminated: false,
+        spectatorRevealEnabled: false,
       });
       room.playerReadsById[botPlayerId] = createBotRead();
+    });
+  }
+
+  async removeBot(code: string, playerId: string, targetPlayerId: string) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+
+      if (room.phase !== 'lobby') {
+        throw new CommandError('bot-remove-lobby-only');
+      }
+
+      this.assertHost(room, playerId);
+
+      const targetPlayer = this.requirePlayer(room, targetPlayerId);
+
+      if (!targetPlayer.isBot) {
+        throw new CommandError('player-not-bot');
+      }
+
+      room.players = reindexLobbySeats(
+        room.players.filter((player) => player.playerId !== targetPlayerId),
+      );
+      delete room.playerReadsById[targetPlayerId];
     });
   }
 
@@ -517,9 +587,7 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
 
       if (room.phase !== 'lobby') {
-        throw new CommandError(
-          'Ready state can only change while the room is in the lobby.',
-        );
+        throw new CommandError('ready-lobby-only');
       }
 
       const player = this.requirePlayer(room, playerId);
@@ -536,9 +604,7 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
 
       if (room.phase !== 'lobby') {
-        throw new CommandError(
-          'Room settings can only change while the room is in the lobby.',
-        );
+        throw new CommandError('settings-lobby-only');
       }
 
       this.assertHost(room, playerId);
@@ -548,6 +614,9 @@ export class RoomRegistry {
         room.settings.eliminationHandSize !==
           nextSettings.eliminationHandSize ||
         room.settings.claimOrderPreset !== nextSettings.claimOrderPreset ||
+        room.settings.flushRule !== nextSettings.flushRule ||
+        room.settings.showdownDrawRule !== nextSettings.showdownDrawRule ||
+        room.settings.jokerRule !== nextSettings.jokerRule ||
         room.settings.turnTimeLimitSeconds !==
           nextSettings.turnTimeLimitSeconds;
 
@@ -567,19 +636,17 @@ export class RoomRegistry {
       const room = this.requireRoom(code);
 
       if (room.phase !== 'lobby') {
-        throw new CommandError('The match can only start from the lobby.');
+        throw new CommandError('start-match-lobby-only');
       }
 
       this.assertHost(room, playerId);
 
       if (room.players.length < 2) {
-        throw new CommandError('At least two players are required to start.');
+        throw new CommandError('start-match-min-players');
       }
 
       if (room.players.some((player) => !player.isReady)) {
-        throw new CommandError(
-          'Every player must be marked ready before the host can start.',
-        );
+        throw new CommandError('start-match-ready-required');
       }
 
       const starterSeatIndex =
@@ -587,13 +654,14 @@ export class RoomRegistry {
           ?.seatIndex;
 
       if (starterSeatIndex === undefined) {
-        throw new CommandError('Unable to choose a starting seat.');
+        throw new CommandError('start-match-no-starter');
       }
 
       room.players = room.players.map((player) => ({
         ...player,
         handSize: 1,
         isEliminated: false,
+        spectatorRevealEnabled: false,
       }));
 
       room.phase = 'in-match';
@@ -608,6 +676,7 @@ export class RoomRegistry {
   async setMatchPaused(code: string, playerId: string, paused: boolean) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
+      this.healAutonomousState(room);
       const match = this.requireActiveMatch(room);
 
       if (this.resolveExpiredTurnIfNeeded(room)) {
@@ -616,8 +685,12 @@ export class RoomRegistry {
 
       this.assertHost(room, playerId);
 
+      if (match.phase === 'dealing') {
+        throw new CommandError('dealing-in-progress');
+      }
+
       if (!match.turnTimer) {
-        throw new CommandError('There is no active turn timer to pause.');
+        throw new CommandError('no-turn-timer');
       }
 
       if (paused) {
@@ -637,11 +710,12 @@ export class RoomRegistry {
   async sendChatMessage(code: string, playerId: string, text: string) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
+      this.healAutonomousState(room);
       const player = this.requirePlayer(room, playerId);
       const messageText = sanitizeChatMessage(text);
 
       if (!messageText) {
-        throw new CommandError('Chat message cannot be empty.');
+        throw new CommandError('chat-message-empty');
       }
 
       room.chatMessages = [
@@ -660,6 +734,7 @@ export class RoomRegistry {
   async submitClaim(code: string, playerId: string, claimKey: string) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
+      this.healAutonomousState(room);
       this.submitClaimForPlayer(room, playerId, parseClaimKey(claimKey));
     });
   }
@@ -667,7 +742,54 @@ export class RoomRegistry {
   async challengeClaim(code: string, playerId: string) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
+      this.healAutonomousState(room);
       this.challengeClaimForPlayer(room, playerId);
+    });
+  }
+
+  async setSpectatorCardReveal(
+    code: string,
+    playerId: string,
+    enabled: boolean,
+  ) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+      this.healAutonomousState(room);
+      this.requireActiveMatch(room);
+
+      const player = this.requirePlayer(room, playerId);
+
+      if (player.isBot || !player.isEliminated) {
+        throw new CommandError('spectator-reveal-for-eliminated-humans-only');
+      }
+
+      player.spectatorRevealEnabled = enabled;
+    });
+  }
+
+  async kickPlayerToSpectator(
+    code: string,
+    playerId: string,
+    targetPlayerId: string,
+  ) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+      this.healAutonomousState(room);
+      this.assertHost(room, playerId);
+
+      if (playerId === targetPlayerId) {
+        throw new CommandError('self-spectate-use-stop-playing');
+      }
+
+      this.movePlayerToSpectator(room, targetPlayerId);
+    });
+  }
+
+  async becomeSpectator(code: string, playerId: string) {
+    return this.withRoomLock(code, () => {
+      const room = this.requireRoom(code);
+      this.healAutonomousState(room);
+      this.movePlayerToSpectator(room, playerId);
     });
   }
 
@@ -677,13 +799,16 @@ export class RoomRegistry {
       this.assertHost(room, playerId);
 
       this.clearTurnTimeout(code);
+      this.clearDealingHold(code);
       this.clearBotTurn(code);
       this.clearResultHold(code);
+      this.clearHostReassignment(code);
       room.phase = 'lobby';
       room.players = room.players.map((player) => ({
         ...player,
         handSize: 1,
         isEliminated: false,
+        spectatorRevealEnabled: false,
         isReady: player.isBot,
       }));
       room.match = undefined;
@@ -702,7 +827,7 @@ export class RoomRegistry {
     const activePlayers = sortPlayersBySeat(room.players).filter(
       (player) => !player.isEliminated,
     );
-    const shuffledDeck = shuffleDeck(createDeck());
+    const shuffledDeck = shuffleDeck(createDeck(room.settings.jokerRule));
     const handsByPlayerId = dealCards(
       shuffledDeck,
       activePlayers.map((player) => ({
@@ -710,19 +835,28 @@ export class RoomRegistry {
         count: player.handSize,
       })),
     );
+    const totalCardCount = activePlayers.reduce(
+      (count, player) => count + player.handSize,
+      0,
+    );
+    const remainingDeck = shuffledDeck.slice(totalCardCount);
 
     return {
-      phase: 'awaiting-opening-claim',
+      phase: 'dealing',
       round: {
         roundNumber: options.roundNumber,
         starterSeatIndex: options.starterSeatIndex,
         currentTurnSeatIndex: options.starterSeatIndex,
         claimHistory: [],
         handsByPlayerId,
+        remainingDeck,
       },
-      turnTimer: this.createRunningTurnTimer(
-        room.settings.turnTimeLimitSeconds,
-      ),
+      dealing: {
+        startedAtMs: this.now(),
+        durationMs: calculateDealingDurationMs({
+          totalCardCount,
+        }),
+      },
       ...(options.lastShowdown ? { lastShowdown: options.lastShowdown } : {}),
       ...(options.lastTimeout ? { lastTimeout: options.lastTimeout } : {}),
     };
@@ -783,9 +917,52 @@ export class RoomRegistry {
   }
 
   private syncAutonomousTurn(room: RoomState) {
+    this.scheduleDealingHold(room);
     this.scheduleTurnTimeout(room);
     this.scheduleBotTurn(room);
     this.scheduleResultHold(room);
+  }
+
+  private scheduleHostReassignment(
+    room: RoomState,
+    previousHostPlayerId: string,
+  ) {
+    this.clearHostReassignment(room.code);
+
+    if (room.hostPlayerId !== previousHostPlayerId) {
+      return;
+    }
+
+    const handle = this.setTimer(() => {
+      this.hostReassignmentTimers.delete(room.code);
+      void this.handleHostReassignment(room.code, previousHostPlayerId);
+    }, HOST_REASSIGN_DELAY_MS);
+    this.hostReassignmentTimers.set(room.code, handle);
+  }
+
+  private scheduleDealingHold(room: RoomState) {
+    this.clearDealingHold(room.code);
+
+    if (
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase !== 'dealing' ||
+      !room.match.dealing
+    ) {
+      return;
+    }
+
+    const delayMs = Math.max(
+      0,
+      room.match.dealing.startedAtMs +
+        room.match.dealing.durationMs -
+        this.now(),
+    );
+    const handle = this.setTimer(() => {
+      this.dealingHoldTimers.delete(room.code);
+      void this.handleDealingHold(room.code);
+    }, delayMs);
+    this.dealingHoldTimers.set(room.code, handle);
   }
 
   private scheduleTurnTimeout(room: RoomState) {
@@ -795,6 +972,7 @@ export class RoomRegistry {
       room.phase !== 'in-match' ||
       !room.match ||
       room.match.phase === 'match-complete' ||
+      room.match.phase === 'dealing' ||
       room.match.phase === 'showing-result' ||
       !room.match.turnTimer ||
       room.match.turnTimer.isPaused ||
@@ -822,6 +1000,17 @@ export class RoomRegistry {
     this.turnTimers.delete(code);
   }
 
+  private clearDealingHold(code: string) {
+    const handle = this.dealingHoldTimers.get(code);
+
+    if (!handle) {
+      return;
+    }
+
+    this.clearTimer(handle);
+    this.dealingHoldTimers.delete(code);
+  }
+
   private scheduleBotTurn(room: RoomState) {
     this.clearBotTurn(room.code);
 
@@ -829,6 +1018,7 @@ export class RoomRegistry {
       room.phase !== 'in-match' ||
       !room.match ||
       room.match.phase === 'match-complete' ||
+      room.match.phase === 'dealing' ||
       room.match.phase === 'showing-result' ||
       !room.match.turnTimer ||
       room.match.turnTimer?.isPaused
@@ -869,12 +1059,21 @@ export class RoomRegistry {
       return;
     }
 
-    const claim =
-      room.match.lastShowdown?.spokenClaim ?? room.match.lastTimeout?.lastClaim;
-    const delayMs = calculateResolutionDisplayDurationMs({
+    const kind = room.match.lastShowdown ? 'showdown' : 'timeout';
+    const displayDurationMs = calculateResolutionDisplayDurationMs({
+      kind,
       revealedHandCount: result.revealedHands.length,
-      ...(claim ? { claim } : {}),
+      ...(room.match.lastShowdown
+        ? { deckDrawCount: room.match.lastShowdown.deckDraws.length }
+        : {}),
     });
+    const startedAtMs =
+      room.match.lastShowdown?.startedAtMs ??
+      room.match.lastTimeout?.startedAtMs;
+    const delayMs = Math.max(
+      0,
+      (startedAtMs ?? this.now()) + displayDurationMs - this.now(),
+    );
     const handle = this.setTimer(() => {
       this.resultHoldTimers.delete(room.code);
       void this.handleResultHold(room.code);
@@ -904,6 +1103,17 @@ export class RoomRegistry {
     this.resultHoldTimers.delete(code);
   }
 
+  private clearHostReassignment(code: string) {
+    const handle = this.hostReassignmentTimers.get(code);
+
+    if (!handle) {
+      return;
+    }
+
+    this.clearTimer(handle);
+    this.hostReassignmentTimers.delete(code);
+  }
+
   private async handleTurnTimeout(code: string) {
     let shouldBroadcast = false;
 
@@ -931,12 +1141,60 @@ export class RoomRegistry {
     }
   }
 
+  private async handleDealingHold(code: string) {
+    let shouldBroadcast = false;
+
+    await this.withRoomLock(code, () => {
+      const room = this.rooms.get(code);
+      shouldBroadcast = this.resolveDealingHold(room);
+    });
+
+    if (shouldBroadcast) {
+      this.onAutonomousRoomUpdate?.(code);
+    }
+  }
+
   private async handleResultHold(code: string) {
     let shouldBroadcast = false;
 
     await this.withRoomLock(code, () => {
       const room = this.rooms.get(code);
       shouldBroadcast = this.resolveResultHold(room);
+    });
+
+    if (shouldBroadcast) {
+      this.onAutonomousRoomUpdate?.(code);
+    }
+  }
+
+  private async handleHostReassignment(
+    code: string,
+    previousHostPlayerId: string,
+  ) {
+    let shouldBroadcast = false;
+
+    await this.withRoomLock(code, () => {
+      const room = this.rooms.get(code);
+
+      if (!room) {
+        return;
+      }
+
+      const previousHost = room.players.find(
+        (player) => player.playerId === previousHostPlayerId,
+      );
+
+      if (
+        !previousHost ||
+        room.hostPlayerId !== previousHostPlayerId ||
+        previousHost.connectionStatus === 'connected'
+      ) {
+        return;
+      }
+
+      shouldBroadcast = this.reassignHost(room, previousHostPlayerId, {
+        excludePreviousHost: true,
+      });
     });
 
     if (shouldBroadcast) {
@@ -959,9 +1217,116 @@ export class RoomRegistry {
       }));
   }
 
+  private buildSpectatorRevealedHands(
+    room: RoomState,
+    viewerPlayerId: string,
+  ): RevealedHandSnapshot[] {
+    if (!room.match) {
+      return [];
+    }
+
+    return sortPlayersBySeat(room.players)
+      .filter(
+        (player) => !player.isEliminated && player.playerId !== viewerPlayerId,
+      )
+      .map((player) => ({
+        playerId: player.playerId,
+        cards: sortCardsDescending(
+          room.match?.round.handsByPlayerId[player.playerId] ?? [],
+        ),
+      }));
+  }
+
+  private healAutonomousState(room: RoomState): boolean {
+    let didHeal = false;
+
+    while (true) {
+      if (this.resolveDealingHold(room)) {
+        didHeal = true;
+        continue;
+      }
+
+      if (this.resolveExpiredTurnIfNeeded(room)) {
+        didHeal = true;
+        continue;
+      }
+
+      if (this.resolveExpiredResultHoldIfNeeded(room)) {
+        didHeal = true;
+        continue;
+      }
+
+      break;
+    }
+
+    return didHeal;
+  }
+
+  private resolveDealingHold(room: RoomState | undefined): boolean {
+    if (
+      !room ||
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase !== 'dealing' ||
+      !room.match.dealing
+    ) {
+      return false;
+    }
+
+    const dealFinishedAtMs =
+      room.match.dealing.startedAtMs + room.match.dealing.durationMs;
+
+    if (dealFinishedAtMs > this.now()) {
+      return false;
+    }
+
+    this.clearDealingHold(room.code);
+    room.match.phase = 'awaiting-opening-claim';
+    room.match.dealing = undefined;
+    room.match.turnTimer = this.createRunningTurnTimer(
+      room.settings.turnTimeLimitSeconds,
+    );
+    this.syncAutonomousTurn(room);
+    return true;
+  }
+
+  private resolveExpiredResultHoldIfNeeded(room: RoomState): boolean {
+    if (
+      room.phase !== 'in-match' ||
+      !room.match ||
+      room.match.phase !== 'showing-result'
+    ) {
+      return false;
+    }
+
+    const result = room.match.lastShowdown ?? room.match.lastTimeout;
+
+    if (!result) {
+      return false;
+    }
+
+    const displayDurationMs = calculateResolutionDisplayDurationMs({
+      kind: room.match.lastShowdown ? 'showdown' : 'timeout',
+      revealedHandCount: result.revealedHands.length,
+      ...(room.match.lastShowdown
+        ? { deckDrawCount: room.match.lastShowdown.deckDraws.length }
+        : {}),
+    });
+    const startedAtMs =
+      room.match.lastShowdown?.startedAtMs ??
+      room.match.lastTimeout?.startedAtMs;
+
+    if ((startedAtMs ?? this.now()) + displayDurationMs > this.now()) {
+      return false;
+    }
+
+    return this.resolveResultHold(room);
+  }
+
   private resolveExpiredTurnIfNeeded(room: RoomState): boolean {
     if (
       room.phase !== 'in-match' ||
+      room.match?.phase === 'dealing' ||
       !room.match?.turnTimer ||
       room.match.turnTimer.isPaused ||
       room.match.turnTimer.deadlineAtMs === undefined ||
@@ -1019,6 +1384,7 @@ export class RoomRegistry {
       (player) => !player.isEliminated,
     );
     const timeoutBase = {
+      startedAtMs: this.now(),
       timedOutPlayerId: timedOutPlayer.playerId,
       loserHandSize: resolution.loserHandSize,
       loserEliminated: resolution.loserEliminated,
@@ -1033,7 +1399,7 @@ export class RoomRegistry {
       const winner = remainingPlayers[0];
 
       if (!winner) {
-        throw new CommandError('A winning player could not be determined.');
+        throw new CommandError('winner-undetermined');
       }
 
       match.round.currentTurnSeatIndex = winner.seatIndex;
@@ -1082,15 +1448,16 @@ export class RoomRegistry {
       match.lastTimeout?.nextStarterPlayerId;
 
     if (!nextStarterPlayerId) {
-      throw new CommandError(
-        'The next starter could not be determined after result hold.',
-      );
+      throw new CommandError('next-starter-undetermined');
     }
 
-    const nextStarterSeatIndex = this.requirePlayer(
-      room,
-      nextStarterPlayerId,
-    ).seatIndex;
+    const nextStarterPlayer = this.requirePlayer(room, nextStarterPlayerId);
+    const nextStarterSeatIndex = nextStarterPlayer.isEliminated
+      ? getNextActiveSeatIndex(
+          this.toPenaltyPlayerStates(room),
+          nextStarterPlayer.seatIndex,
+        )
+      : nextStarterPlayer.seatIndex;
 
     room.phase = 'in-match';
     room.match = this.createRound(room, {
@@ -1114,11 +1481,13 @@ export class RoomRegistry {
     const match = this.requireActiveMatch(room);
 
     this.clearTurnTimeout(room.code);
+    this.clearDealingHold(room.code);
     this.clearBotTurn(room.code);
     this.clearResultHold(room.code);
 
     room.phase = 'in-match';
     match.phase = 'showing-result';
+    match.dealing = undefined;
     match.turnTimer = undefined;
     match.lastShowdown = options.showdown;
     match.lastTimeout = options.timeout;
@@ -1139,6 +1508,7 @@ export class RoomRegistry {
       room.phase !== 'in-match' ||
       !room.match ||
       room.match.phase === 'match-complete' ||
+      room.match.phase === 'dealing' ||
       room.match.phase === 'showing-result' ||
       room.match.turnTimer?.isPaused
     ) {
@@ -1171,6 +1541,8 @@ export class RoomRegistry {
       selfHandSize: currentPlayer.handSize,
       eliminationHandSize: room.settings.eliminationHandSize,
       claimOrderPreset: room.settings.claimOrderPreset,
+      flushRule: room.settings.flushRule,
+      jokerRule: room.settings.jokerRule,
       ...(room.match.round.lastClaim
         ? { lastClaim: room.match.round.lastClaim }
         : {}),
@@ -1199,7 +1571,7 @@ export class RoomRegistry {
     const room = this.rooms.get(code);
 
     if (!room) {
-      throw new CommandError('Room not found.', 404);
+      throw new CommandError('room-not-found', 404);
     }
 
     return room;
@@ -1211,7 +1583,7 @@ export class RoomRegistry {
     );
 
     if (!player) {
-      throw new CommandError('Player not found in this room.', 404);
+      throw new CommandError('player-not-found', 404);
     }
 
     return player;
@@ -1223,7 +1595,7 @@ export class RoomRegistry {
     );
 
     if (!player) {
-      throw new CommandError('Seat not found in this room.', 404);
+      throw new CommandError('seat-not-found', 404);
     }
 
     return player;
@@ -1231,7 +1603,7 @@ export class RoomRegistry {
 
   private requireActiveMatch(room: RoomState): MatchState {
     if (!room.match || room.phase !== 'in-match') {
-      throw new CommandError('There is no active match in this room.');
+      throw new CommandError('no-active-match');
     }
 
     return room.match;
@@ -1239,7 +1611,7 @@ export class RoomRegistry {
 
   private assertHost(room: RoomState, playerId: string) {
     if (room.hostPlayerId !== playerId) {
-      throw new CommandError('Only the host can do that.');
+      throw new CommandError('host-only');
     }
   }
 
@@ -1250,30 +1622,100 @@ export class RoomRegistry {
     );
 
     if (duplicate) {
-      throw new CommandError(
-        'That display name is already in use in this room.',
-      );
+      throw new CommandError('display-name-in-use');
     }
   }
 
   private maybeReassignHost(room: RoomState, previousHostPlayerId: string) {
+    return this.reassignHost(room, previousHostPlayerId, {
+      excludePreviousHost: false,
+    });
+  }
+
+  private reassignHost(
+    room: RoomState,
+    previousHostPlayerId: string,
+    options: { excludePreviousHost: boolean },
+  ): boolean {
     if (room.hostPlayerId !== previousHostPlayerId) {
-      return;
+      return false;
     }
 
-    const humanPlayers = sortPlayersBySeat(room.players).filter(
-      (player) => !player.isBot,
+    const candidates = sortPlayersBySeat(room.players).filter(
+      (player) =>
+        !options.excludePreviousHost ||
+        player.playerId !== previousHostPlayerId,
     );
+    const humanPlayers = candidates.filter((player) => !player.isBot);
     const nextHost =
       humanPlayers.find((player) => player.connectionStatus === 'connected') ??
       humanPlayers[0] ??
-      sortPlayersBySeat(room.players)[0];
+      candidates.find((player) => player.connectionStatus === 'connected') ??
+      candidates[0];
 
     if (!nextHost) {
-      return;
+      return false;
     }
 
     room.hostPlayerId = nextHost.playerId;
+    this.clearHostReassignment(room.code);
+    return true;
+  }
+
+  private movePlayerToSpectator(room: RoomState, playerId: string) {
+    const match = this.requireActiveMatch(room);
+    const player = this.requirePlayer(room, playerId);
+
+    if (match.phase === 'match-complete') {
+      throw new CommandError('match-already-complete');
+    }
+
+    if (player.isEliminated) {
+      throw new CommandError('player-already-spectating');
+    }
+
+    player.isEliminated = true;
+    player.spectatorRevealEnabled = false;
+
+    const remainingActivePlayers = sortPlayersBySeat(room.players).filter(
+      (candidate) => !candidate.isEliminated,
+    );
+
+    if (remainingActivePlayers.length <= 1) {
+      this.clearTurnTimeout(room.code);
+      this.clearDealingHold(room.code);
+      this.clearBotTurn(room.code);
+      this.clearResultHold(room.code);
+
+      room.phase = 'match-complete';
+      match.phase = 'match-complete';
+      match.dealing = undefined;
+      match.turnTimer = undefined;
+      match.winnerPlayerId = remainingActivePlayers[0]?.playerId;
+      return;
+    }
+
+    if (match.phase === 'showing-result') {
+      return;
+    }
+
+    const nextStarterSeatIndex = remainingActivePlayers.some(
+      (candidate) => candidate.seatIndex === match.round.currentTurnSeatIndex,
+    )
+      ? match.round.currentTurnSeatIndex
+      : getNextActiveSeatIndex(
+          this.toPenaltyPlayerStates(room),
+          player.seatIndex,
+        );
+
+    room.phase = 'in-match';
+    room.match = this.createRound(room, {
+      roundNumber: match.round.roundNumber,
+      starterSeatIndex: nextStarterSeatIndex,
+      ...(match.lastShowdown ? { lastShowdown: match.lastShowdown } : {}),
+      ...(match.lastTimeout ? { lastTimeout: match.lastTimeout } : {}),
+    });
+    this.syncAutonomousTurn(room);
   }
 
   private async withRoomLock<T>(
@@ -1317,28 +1759,31 @@ export class RoomRegistry {
     }
 
     if (match.turnTimer?.isPaused) {
-      throw new CommandError('The game is paused.');
+      throw new CommandError('game-paused');
+    }
+
+    if (match.phase === 'dealing') {
+      throw new CommandError('dealing-in-progress');
     }
 
     if (match.phase === 'showing-result') {
-      throw new CommandError('The previous round is still being shown.');
+      throw new CommandError('result-still-showing');
     }
 
     if (player.seatIndex !== match.round.currentTurnSeatIndex) {
-      throw new CommandError('It is not your turn.');
+      throw new CommandError('not-your-turn');
     }
 
     if (
       match.round.lastClaim &&
-      compareClaims(
+      !isClaimStrictlyHigher(
         claim,
         match.round.lastClaim,
         room.settings.claimOrderPreset,
-      ) <= 0
+        room.settings.flushRule,
+      )
     ) {
-      throw new CommandError(
-        'Each claim must be strictly stronger than the previous one.',
-      );
+      throw new CommandError('claim-not-stronger');
     }
 
     match.round.lastClaim = claim;
@@ -1365,19 +1810,23 @@ export class RoomRegistry {
     }
 
     if (match.turnTimer?.isPaused) {
-      throw new CommandError('The game is paused.');
+      throw new CommandError('game-paused');
+    }
+
+    if (match.phase === 'dealing') {
+      throw new CommandError('dealing-in-progress');
     }
 
     if (match.phase === 'showing-result') {
-      throw new CommandError('The previous round is still being shown.');
+      throw new CommandError('result-still-showing');
     }
 
     if (challenger.seatIndex !== match.round.currentTurnSeatIndex) {
-      throw new CommandError('It is not your turn.');
+      throw new CommandError('not-your-turn');
     }
 
     if (!match.round.lastClaim || !match.round.lastClaimantPlayerId) {
-      throw new CommandError('There is no claim to challenge yet.');
+      throw new CommandError('no-claim-to-challenge');
     }
 
     const resolution = resolveShowdown({
@@ -1387,6 +1836,8 @@ export class RoomRegistry {
       handsByPlayerId: match.round.handsByPlayerId,
       players: this.toPenaltyPlayerStates(room),
       eliminationHandSize: room.settings.eliminationHandSize,
+      remainingDeck: match.round.remainingDeck,
+      showdownDrawRule: room.settings.showdownDrawRule,
     });
 
     this.clearTurnTimeout(room.code);
@@ -1424,6 +1875,7 @@ export class RoomRegistry {
       resolution.loserPlayerId,
     );
     const showdownBase = {
+      startedAtMs: this.now(),
       spokenClaim: match.round.lastClaim,
       claimantPlayerId: match.round.lastClaimantPlayerId,
       challengerPlayerId: challenger.playerId,
@@ -1432,13 +1884,14 @@ export class RoomRegistry {
       loserHandSize: resolution.loserHandSize,
       loserEliminated: resolution.loserEliminated,
       revealedHands,
+      deckDraws: resolution.deckDraws,
     } satisfies Omit<ShowdownSnapshot, 'nextStarterPlayerId'>;
 
     if (remainingPlayers.length === 1) {
       const winner = remainingPlayers[0];
 
       if (!winner) {
-        throw new CommandError('A winning player could not be determined.');
+        throw new CommandError('winner-undetermined');
       }
 
       match.round.currentTurnSeatIndex = winner.seatIndex;

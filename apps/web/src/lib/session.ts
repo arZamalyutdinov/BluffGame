@@ -3,18 +3,32 @@ import type { RoomSession } from '@bluff-game/shared';
 const ROOM_SESSION_PREFIX = 'bluffgame/session/';
 const DISPLAY_NAME_KEY = 'bluffgame/display-name';
 
+function getStorage(): Storage | null {
+  return typeof window === 'undefined' ? null : window.localStorage;
+}
+
 export function saveRoomSession(session: RoomSession) {
-  window.localStorage.setItem(
+  const storage = getStorage();
+
+  if (!storage) {
+    return;
+  }
+
+  storage.setItem(
     `${ROOM_SESSION_PREFIX}${session.roomCode}`,
     JSON.stringify(session),
   );
-  window.localStorage.setItem(DISPLAY_NAME_KEY, session.displayName);
+  storage.setItem(DISPLAY_NAME_KEY, session.displayName);
 }
 
 export function getRoomSession(roomCode: string): RoomSession | null {
-  const value = window.localStorage.getItem(
-    `${ROOM_SESSION_PREFIX}${roomCode}`,
-  );
+  const storage = getStorage();
+
+  if (!storage) {
+    return null;
+  }
+
+  const value = storage.getItem(`${ROOM_SESSION_PREFIX}${roomCode}`);
 
   if (!value) {
     return null;
@@ -23,15 +37,15 @@ export function getRoomSession(roomCode: string): RoomSession | null {
   try {
     return JSON.parse(value) as RoomSession;
   } catch {
-    window.localStorage.removeItem(`${ROOM_SESSION_PREFIX}${roomCode}`);
+    storage.removeItem(`${ROOM_SESSION_PREFIX}${roomCode}`);
     return null;
   }
 }
 
 export function removeRoomSession(roomCode: string) {
-  window.localStorage.removeItem(`${ROOM_SESSION_PREFIX}${roomCode}`);
+  getStorage()?.removeItem(`${ROOM_SESSION_PREFIX}${roomCode}`);
 }
 
 export function getLastDisplayName(): string {
-  return window.localStorage.getItem(DISPLAY_NAME_KEY) ?? '';
+  return getStorage()?.getItem(DISPLAY_NAME_KEY) ?? '';
 }

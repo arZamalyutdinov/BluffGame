@@ -1,26 +1,31 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", sans-serif;
+  --font-display: "Plus Jakarta Sans", sans-serif;
+}
 
 :root {
   color-scheme: dark;
-  --bg: #09101d;
-  --bg-accent: #162846;
-  --surface: rgba(10, 18, 34, 0.8);
-  --surface-strong: rgba(12, 22, 43, 0.96);
-  --ink: #eef4ff;
-  --muted: #bfd0e6;
-  --line: rgba(190, 216, 255, 0.22);
-  --primary: #caf46d;
-  --primary-strong: #9fd247;
-  --secondary: #ff9d7a;
-  --ready: #8cf0bb;
-  --idle: #7e90a9;
-  --error: #ff8e79;
-  --table-felt: #7aa27f;
-  --table-felt-deep: #54775d;
-  --table-rail: #495ca9;
-  --shadow-strong: 0 28px 80px rgba(3, 8, 20, 0.42);
-  --shadow-soft: 0 18px 44px rgba(5, 12, 28, 0.28);
-  font-family: "Space Grotesk", sans-serif;
+  --bg: #060817;
+  --bg-accent: #111735;
+  --surface: rgba(15, 20, 48, 0.72);
+  --surface-strong: rgba(12, 17, 40, 0.92);
+  --ink: #eef3ff;
+  --muted: #b6bddc;
+  --line: rgba(194, 205, 255, 0.16);
+  --primary: #64f4c5;
+  --primary-strong: #1fe9c7;
+  --secondary: #bc62ff;
+  --ready: #7af2bf;
+  --idle: #7f88ae;
+  --error: #ff8f85;
+  --table-felt: #2d8d59;
+  --table-felt-deep: #1a5a43;
+  --table-rail: #64d9ff;
+  --shadow-strong: 0 32px 96px rgba(4, 8, 24, 0.5);
+  --shadow-soft: 0 22px 54px rgba(4, 10, 28, 0.3);
+  font-family: "Inter", sans-serif;
 }
 
 /* Avatar-First scene final overrides */
@@ -2193,6 +2198,12 @@ h2 {
   gap: 0.85rem;
 }
 
+.side-panel-section.split-top {
+  margin-top: 0.4rem;
+  padding-top: 0.95rem;
+  border-top: 1px solid rgba(180, 206, 255, 0.08);
+}
+
 .side-panel-header {
   display: flex;
   justify-content: space-between;
@@ -2321,8 +2332,22 @@ h2 {
 }
 
 .player-details-body {
+  display: grid;
+  gap: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid rgba(23, 49, 62, 0.08);
+}
+
+.player-live-hand,
+.player-spectator-controls {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.player-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
 }
 
 .player-name-row {
@@ -2950,6 +2975,50 @@ h2 {
   min-height: 0;
 }
 
+.claim-builder-context {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(11rem, 0.8fr);
+  gap: 0.8rem;
+}
+
+.claim-builder-context-panel {
+  display: grid;
+  gap: 0.55rem;
+  align-content: center;
+  min-height: 0;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(183, 205, 255, 0.12);
+  border-radius: 22px;
+  background: linear-gradient(
+      180deg,
+      rgba(24, 37, 68, 0.86),
+      rgba(11, 20, 39, 0.9)
+    ), rgba(11, 20, 39, 0.82);
+}
+
+.claim-builder-context-hand {
+  display: flex;
+  justify-content: center;
+  min-height: 3rem;
+}
+
+.claim-builder-context-value {
+  font-size: clamp(1.9rem, 3vw, 2.5rem);
+  line-height: 1;
+}
+
+.claim-builder-context-meta {
+  margin: 0;
+  color: #d2deec;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.claim-builder-context-total {
+  justify-items: center;
+  text-align: center;
+}
+
 .claim-builder-intro,
 .claim-builder-body,
 .claim-builder-footer,
@@ -3092,6 +3161,86 @@ h2 {
 .claim-visual-card.suit-clubs,
 .claim-visual-card.suit-spades {
   color: #23354d;
+}
+
+.claim-visual-card.is-joker {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+  background: radial-gradient(
+      circle at top,
+      rgba(255, 255, 255, 0.22),
+      transparent 48%
+    ), linear-gradient(180deg, rgba(19, 29, 59, 0.98), rgba(11, 18, 42, 0.98));
+}
+
+.claim-visual-card.is-joker::before {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 42%),
+    radial-gradient(
+      circle at center,
+      rgba(255, 255, 255, 0.08),
+      transparent 60%
+    );
+  opacity: 1;
+}
+
+.claim-visual-card.is-red-joker {
+  box-shadow: 0 14px 32px rgba(202, 74, 112, 0.24);
+}
+
+.claim-visual-card.is-black-joker {
+  box-shadow: 0 14px 32px rgba(48, 71, 132, 0.22);
+}
+
+.claim-visual-card.is-red-joker::after {
+  border-color: rgba(255, 151, 184, 0.32);
+}
+
+.claim-visual-card.is-black-joker::after {
+  border-color: rgba(132, 182, 255, 0.24);
+}
+
+.claim-visual-card.is-joker .claim-visual-rank {
+  letter-spacing: 0.06em;
+  font-size: 0.82rem;
+}
+
+.claim-visual-card.is-joker .claim-visual-suit {
+  font-size: 0.86rem;
+}
+
+.claim-visual-card.is-joker .claim-visual-center {
+  gap: 0.18rem;
+}
+
+.claim-visual-card.is-joker .claim-visual-center-suit {
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+
+.claim-visual-card.is-joker .claim-visual-center-rank {
+  font-size: 0.9rem;
+  letter-spacing: 0.08em;
+}
+
+.claim-card-stack.is-compact .claim-visual-card.is-joker .claim-visual-rank {
+  font-size: 0.56rem;
+}
+
+.claim-card-stack.is-compact .claim-visual-card.is-joker .claim-visual-suit {
+  font-size: 0.56rem;
+}
+
+.claim-card-stack.is-compact
+  .claim-visual-card.is-joker
+  .claim-visual-center-suit {
+  font-size: 0.38rem;
+}
+
+.claim-card-stack.is-compact
+  .claim-visual-card.is-joker
+  .claim-visual-center-rank {
+  font-size: 0.48rem;
 }
 
 .claim-card-stack.is-compact .claim-visual-card {
@@ -3328,6 +3477,12 @@ h2 {
     rgba(255, 184, 112, 0.08);
 }
 
+@media (max-width: 900px) {
+  .claim-builder-context {
+    grid-template-columns: 1fr;
+  }
+}
+
 .claim-choice-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -3499,6 +3654,81 @@ h2 {
 .app-shell-room .chat-log {
   min-height: 0;
   max-height: none;
+}
+
+.chat-form-actions {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.chat-emoji-shell {
+  position: relative;
+}
+
+.chat-emoji-button {
+  width: 3.25rem;
+  min-width: 3.25rem;
+  padding-inline: 0;
+}
+
+.chat-emoji-popover {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 0.75rem);
+  z-index: 20;
+  width: min(22rem, calc(100vw - 3rem));
+  padding: 0.4rem;
+  border: 1px solid rgba(177, 208, 255, 0.16);
+  border-radius: 22px;
+  background: rgba(8, 14, 34, 0.94);
+  box-shadow: 0 24px 56px rgba(4, 8, 24, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.chat-emoji-popover aside.EmojiPickerReact {
+  --epr-bg-color: rgba(8, 14, 34, 0.96);
+  --epr-category-label-bg-color: rgba(8, 14, 34, 0.96);
+  --epr-hover-bg-color: rgba(123, 107, 255, 0.16);
+  --epr-focus-bg-color: rgba(100, 217, 255, 0.18);
+  --epr-text-color: rgb(226 232 240);
+  --epr-search-input-bg-color: rgba(255, 255, 255, 0.05);
+  --epr-search-input-text-color: rgb(248 250 252);
+  --epr-search-border-color: rgba(177, 208, 255, 0.16);
+  --epr-picker-border-color: transparent;
+  --epr-category-label-text-color: rgb(148 163 184);
+  --epr-skin-tone-picker-menu-color: rgba(8, 14, 34, 0.98);
+  width: 100% !important;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.chat-emoji-loading {
+  display: grid;
+  place-items: center;
+  min-height: 18rem;
+  padding: 1rem;
+  color: rgba(226, 232, 240, 0.8);
+  font-size: 0.95rem;
+  text-align: center;
+}
+
+.chat-send-button {
+  flex: 1 1 auto;
+}
+
+@media (max-width: 640px) {
+  .chat-form-actions {
+    align-items: stretch;
+  }
+
+  .chat-emoji-popover {
+    left: 0;
+    right: auto;
+    width: min(20rem, calc(100vw - 2.5rem));
+  }
 }
 
 .resolution-overlay-backdrop {
@@ -4182,9 +4412,7 @@ h2 {
 
 .chat-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.75rem;
-  align-items: end;
 }
 
 .chat-input {
@@ -4193,7 +4421,6 @@ h2 {
 
 .chat-send-button {
   gap: 0.5rem;
-  justify-self: end;
 }
 
 .error-text,

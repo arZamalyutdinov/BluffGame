@@ -2,11 +2,14 @@ import {
   type Card,
   type Claim,
   type ClaimOrderPreset,
+  type FlushRule,
+  type JokerRule,
+  cardToKey,
   claimExists,
   claimToKey,
-  compareClaims,
   createDeck,
   getAllClaims,
+  isClaimStrictlyHigher,
 } from '@bluff-game/shared';
 
 export interface BotOpponentRead {
@@ -26,6 +29,8 @@ export interface BotDecisionContext {
   selfHandSize: number;
   eliminationHandSize: number;
   claimOrderPreset: ClaimOrderPreset;
+  flushRule: FlushRule;
+  jokerRule: JokerRule;
   lastClaim?: Claim;
   claimantRead?: BotOpponentRead;
 }
@@ -76,20 +81,16 @@ function normalizeNameKey(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function buildCardKey(card: Card): string {
-  return `${card.rank}:${card.suit}`;
-}
-
-function buildRemainingDeck(hand: Card[]): Card[] {
+function buildRemainingDeck(hand: Card[], jokerRule: JokerRule): Card[] {
   const remainingCounts = new Map<string, number>();
 
-  for (const card of createDeck()) {
-    const key = buildCardKey(card);
+  for (const card of createDeck(jokerRule)) {
+    const key = cardToKey(card);
     remainingCounts.set(key, (remainingCounts.get(key) ?? 0) + 1);
   }
 
   for (const card of hand) {
-    const key = buildCardKey(card);
+    const key = cardToKey(card);
     const count = remainingCounts.get(key) ?? 0;
 
     if (count <= 0) {
@@ -99,8 +100,8 @@ function buildRemainingDeck(hand: Card[]): Card[] {
     remainingCounts.set(key, count - 1);
   }
 
-  return createDeck().filter((card) => {
-    const key = buildCardKey(card);
+  return createDeck(jokerRule).filter((card) => {
+    const key = cardToKey(card);
     const count = remainingCounts.get(key) ?? 0;
 
     if (count <= 0) {
@@ -134,7 +135,7 @@ function sampleUnknownCards(deck: Card[], count: number): Card[] {
 function estimateClaimProbabilities(
   context: Pick<
     BotDecisionContext,
-    'hand' | 'totalCardsInRound' | 'activePlayerCount'
+    'hand' | 'totalCardsInRound' | 'activePlayerCount' | 'jokerRule'
   >,
   claims: Claim[],
 ): Map<string, number> {
@@ -160,7 +161,7 @@ function estimateClaimProbabilities(
     return probabilities;
   }
 
-  const remainingDeck = buildRemainingDeck(context.hand);
+  const remainingDeck = buildRemainingDeck(context.hand, context.jokerRule);
   const sampleCount = clamp(
     150 + uniqueClaims.length / 4 + context.activePlayerCount * 15,
     180,
@@ -217,11 +218,16 @@ function getClaimPressure(
 }
 
 export function chooseBotAction(context: BotDecisionContext): BotDecision {
-  const allClaims = getAllClaims(context.claimOrderPreset);
+  const allClaims = getAllClaims(context.claimOrderPreset, context.flushRule);
   const legalClaims = allClaims.filter(
     (claim) =>
       !context.lastClaim ||
-      compareClaims(claim, context.lastClaim, context.claimOrderPreset) > 0,
+      isClaimStrictlyHigher(
+        claim,
+        context.lastClaim,
+        context.claimOrderPreset,
+        context.flushRule,
+      ),
   );
 
   if (!context.lastClaim) {

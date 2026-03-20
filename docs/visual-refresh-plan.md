@@ -4,14 +4,14 @@ Planning update recorded on March 15, 2026.
 
 ## Goal
 
-Make BluffGame feel closer to a stylized live card-table game: a clear table surface, stronger player presence, more expressive icons, and lightweight motion that adds energy without obscuring the rules. The current art-direction lock is a playful neon cartoon table scene for the live match and showdown overlay, with the provided screenshots serving as mood reference rather than a feature checklist.
+Make BluffGame feel closer to a stylized live card-table game: a clear table surface, stronger player presence, more expressive icons, and lightweight motion that adds energy without obscuring the rules. The current art-direction lock is a playful neon cartoon table scene for the live match and table-native result layer, with the provided screenshots serving as mood reference rather than a feature checklist.
 
 ## Non-Goals
 
 - Do not clone the reference screen one-for-one.
-- Do not add shop, inventory, spectator, or cosmetic-economy systems as part of this visual refresh.
+- Do not add shop, inventory, or cosmetic-economy systems as part of this visual refresh.
 - Do not move gameplay authority into client-only animation logic.
-- Do not introduce heavy 3D or canvas rendering for the first pass.
+- Do not make heavy 3D or WebGL rendering a requirement for readability or interaction; decorative scene layers must remain optional and disposable.
 
 ## Experience Pillars
 
@@ -44,14 +44,18 @@ The same visual language should work on desktop and mobile. Reduced-motion users
 ### Visual Foundation
 
 - Define the table silhouette, palette, typography, icon language, glow rules, and button chrome.
-- Move shared color, spacing, radius, shadow, and motion values into a reusable token layer.
+- Move shared color, spacing, radius, shadow, and motion values into a reusable token layer, with Tailwind driving shared layout and HUD composition.
 - Establish a reusable scene shell that home, lobby, and match screens can all inherit.
+- Vendor any textures or art references locally before shipping so the production build does not depend on third-party image hosts.
 
 ### Table Scene and Seating
 
 - Build the match view around an oval felt table with layered rail, inner glow, and a clear play area.
 - Anchor players to consistent seat positions with room for avatar badges, hand counts, turn indicators, and elimination states.
 - Make the self seat larger and bottom-centered, with the player hand integrated into that seat presentation.
+- When a player is eliminated, remove them from the active seat ring on later
+  live rounds and treat them as a spectator in drawer and footer UI instead of
+  leaving a dead seat on the felt.
 - Separate decorative backdrop layers from gameplay layers so the play space stays readable.
 
 ### HUD and Controls
@@ -60,13 +64,18 @@ The same visual language should work on desktop and mobile. Reduced-motion users
 - Move the live match toward a top utility strip, compact floating claim indicators, and a bottom action dock with an attached on-demand claim tray.
 - Introduce icon-backed affordances for host, bot, ready, timer, chat, and settings states.
 - Preserve clear text labels alongside icons so the interface stays understandable without guesswork.
+- Keep participation-management actions such as `Kick` and spectator reveal
+  inside the Players drawer instead of turning the felt itself into an admin
+  surface.
 
 ### Motion and Feedback
 
 - Add page-entry and room-entry motion to make the app feel intentional.
 - Add live-turn emphasis, timer urgency states, and claim-submission transitions.
+- Add a short authoritative deal sequence at the start of each round, with cards traveling from the upper-center rail to each seat.
 - Extend showdown and timeout presentation with layered reveal timing, while keeping the server-owned result window authoritative.
-- Keep the showdown overlay in the same playful neon family as the match table so it feels like one product.
+- Keep the result treatment in the same playful neon family as the match table so it feels like one product instead of a separate modal.
+- Allow canvas-backed ambient scene layers where they add atmosphere, but keep gameplay legible when that layer is absent or reduced.
 
 ### Responsive Pass
 
@@ -84,7 +93,7 @@ The same visual language should work on desktop and mobile. Reduced-motion users
 
 ### Milestone 1: Foundation
 
-- Land the shared visual tokens and scene shell.
+- Land the shared visual tokens, Tailwind shell, and ambient backdrop system.
 - Reskin home and lobby so the style system is proven outside the match view.
 - Add a baseline icon set for suits, host, bot, ready, and settings states.
 
@@ -97,7 +106,7 @@ The same visual language should work on desktop and mobile. Reduced-motion users
 ### Milestone 3: Motion and Result Polish
 
 - Add turn-handoff, claim, and countdown motion.
-- Refine showdown and timeout overlays so the match feels alive.
+- Refine the table-native showdown and timeout layer so the match feels alive.
 - Add reduced-motion fallbacks and tune interruptibility.
 
 ### Milestone 4: Final Fit and Finish
@@ -109,17 +118,21 @@ The same visual language should work on desktop and mobile. Reduced-motion users
 ## Likely Code Touchpoints
 
 - `apps/web/src/App.tsx`
+- `apps/web/src/components/AmbientSceneCanvas.tsx`
 - `apps/web/src/components/LobbyView.tsx`
 - `apps/web/src/components/TableView.tsx`
 - `apps/web/src/components/ClaimPreview.tsx`
 - `apps/web/src/components/RoomChat.tsx`
 - `apps/web/src/components/RoundResolutionOverlay.tsx`
 - `apps/web/src/styles.css`
+- `apps/web/src/tableScene.css`
 
 ## Acceptance Criteria
 
 - The match screen reads as a card table at both desktop and mobile widths.
 - Host, bot, active-turn, ready, and eliminated states are identifiable without opening extra panels.
+- Eliminated-player spectator UI does not clutter the felt, and active seats
+  reflow cleanly after knockouts.
 - Primary actions and the current claim stay readable even with decorative art enabled.
 - Motion reinforces authoritative state changes and does not create ambiguity.
 - Reduced-motion mode remains fully usable.

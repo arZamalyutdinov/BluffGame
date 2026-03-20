@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+    <meta charset="utf-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "error-dim": "#c94947",
+                        "secondary": "#cfbcff",
+                        "inverse-primary": "#006c55",
+                        "tertiary-dim": "#00d4ec",
+                        "error-container": "#8a1a1e",
+                        "on-tertiary-fixed": "#003840",
+                        "surface": "#0b0c1f",
+                        "outline-variant": "#43446b",
+                        "on-secondary-fixed": "#4c00b8",
+                        "inverse-on-surface": "#53536a",
+                        "on-secondary-container": "#b092ff",
+                        "surface-variant": "#202247",
+                        "on-primary-container": "#005b47",
+                        "on-tertiary-container": "#004d57",
+                        "secondary-dim": "#844eff",
+                        "on-surface": "#e4e3ff",
+                        "outline": "#70729c",
+                        "secondary-fixed": "#e9ddff",
+                        "secondary-fixed-dim": "#dccdff",
+                        "tertiary": "#81ecff",
+                        "on-primary": "#00654f",
+                        "on-primary-fixed": "#004535",
+                        "surface-container-high": "#1b1c3c",
+                        "background": "#0b0c1f",
+                        "on-secondary-fixed-variant": "#6b1ef3",
+                        "surface-dim": "#0b0c1f",
+                        "surface-container-low": "#101128",
+                        "surface-container-highest": "#202247",
+                        "tertiary-container": "#00e3fd",
+                        "on-primary-fixed-variant": "#00644f",
+                        "on-background": "#e4e3ff",
+                        "primary-container": "#00fcca",
+                        "surface-container": "#151732",
+                        "tertiary-fixed": "#00e3fd",
+                        "error": "#ff716c",
+                        "on-surface-variant": "#a6a7d4",
+                        "on-secondary": "#4d00bb",
+                        "tertiary-fixed-dim": "#00d4ec",
+                        "surface-tint": "#a8ffe1",
+                        "primary-fixed": "#00f9c7",
+                        "primary": "#a8ffe1",
+                        "inverse-surface": "#fbf8ff",
+                        "surface-bright": "#262852",
+                        "primary-dim": "#00eabb",
+                        "on-tertiary": "#005762",
+                        "on-tertiary-fixed-variant": "#005762",
+                        "on-error-container": "#ff9993",
+                        "secondary-container": "#2e0077",
+                        "surface-container-lowest": "#000000",
+                        "primary-fixed-dim": "#00eabb",
+                        "on-error": "#490006"
+                    },
+                    fontFamily: {
+                        "headline": ["Plus Jakarta Sans"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+    <style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            background-color: #0b0c1f;
+            color: #e4e3ff;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-panel {
+            background: rgba(32, 34, 71, 0.4);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(207, 188, 255, 0.1);
+        }
+        .neon-glow-primary {
+            box-shadow: 0 0 15px rgba(168, 255, 225, 0.3);
+        }
+    </style>
+</head>
+<body class="min-h-screen relative overflow-x-hidden selection:bg-primary selection:text-on-primary-container">
+<!-- TopAppBar -->
+<header class="fixed top-0 w-full z-50 flex justify-between items-center px-6 py-4 bg-black/80 backdrop-blur-xl border-b border-[#cfbcff]/15 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+    <div class="flex items-center gap-6">
+        <span class="text-2xl font-black text-[#a8ffe1] drop-shadow-[0_0_8px_rgba(168,255,225,0.4)] font-['Plus_Jakarta_Sans'] tracking-tight">BluffGame</span>
+        <span class="hidden md:inline-flex items-center px-3 py-1 rounded-full bg-surface-container-high text-[#a8ffe1] text-[10px] uppercase tracking-widest font-bold border border-[#a8ffe1]/20">Snapshot-driven play</span>
+    </div>
+    <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 bg-surface-container-low px-4 py-2 rounded-xl border border-outline-variant/10">
+            <span class="material-symbols-outlined text-primary text-sm">groups</span>
+            <span class="text-on-surface-variant font-label text-xs font-bold">2-8 Players</span>
+        </div>
+        <div class="hidden md:flex items-center gap-3">
+            <span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer">notifications</span>
+            <span class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors cursor-pointer">settings</span>
+        </div>
+    </div>
+</header>
+<!-- Background Decoration -->
+<div class="fixed inset-0 pointer-events-none -z-10">
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[120%] h-[120%] opacity-20" style="background: radial-gradient(circle at center, #2e0077 0%, transparent 70%);"></div>
+    <div class="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/stardust.png')] opacity-10"></div>
+    <!-- Abstract Table Graphic -->
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[40%] w-[800px] h-[400px] border border-primary/10 rounded-[200px] rotate-[-15deg] blur-sm opacity-20"></div>
+</div>
+<main class="pt-32 pb-24 px-6 max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+    <!-- Hero Section -->
+    <section class="lg:col-span-7 flex flex-col gap-6">
+        <h1 class="font-headline font-extrabold text-6xl md:text-8xl text-on-surface tracking-tighter leading-[0.9] drop-shadow-2xl">
+            Run the table.<br/>
+            <span class="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">Sell the lie.</span>
+        </h1>
+        <p class="font-body text-xl text-on-surface-variant max-w-xl leading-relaxed">
+            Enter the digital underground of high-stakes deception. Every move is a calculated risk, every snapshot a potential bluff. Master the art of the sell.
+        </p>
+        <div class="flex items-center gap-4 mt-4">
+            <div class="flex -space-x-3">
+                <img class="w-10 h-10 rounded-full border-2 border-surface" data-alt="User avatar placeholder 1" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBms7vtIRWJ-8Kmt_Spid0Bedsrar4WRbtu7_t8HX_9kOU0K4MPLkG2-hygsgd9IAv65GVhRLTExt79Se6mFdAzgnUxNiPHgYG1Bb6CqVdeP4Dp6T6iKtq0LrUUyB2AKQnEPyDv5xhn-YBcJPpwmEFhsgMqs0fdy-tFAJ8thmkZZl0kNeMSNTsj6ISee1O1XtlUzr-sIq7ECeowpTHOovBRVYI-kocKMccXbotz6ZQl9jGR1xz2T9uQJkSNdTbQH3-O6tz6AhVtEcI"/>
+                <img class="w-10 h-10 rounded-full border-2 border-surface" data-alt="User avatar placeholder 2" src="https://lh3.googleusercontent.com/aida-public/AB6AXuD82Iv2JLxzamXWGY7tAyAyzPWCFUfwO-C83Dg5myJpvS9sWWIonGaihIWiAQHd22xqaSTlPBfFXNpSk1WtoXwE02BGwilfRgkV6xsXMUohrHf-fkkqu17c7pzXxyv0WTgnJFWBFlbnVZtnGtTAtEDpM0kJxP-GIpkECSgMvjOhmSKn9LCQyHTYDA1ZRLjQiuac49gTc9i_GsqbqOpo9Vrg9ghQCX0euE-DZHYUrkdwtSOn4oUDSC30grirRfJty5T63V9MT8HUj5Y"/>
+                <img class="w-10 h-10 rounded-full border-2 border-surface" data-alt="User avatar placeholder 3" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFq5oMa2lJf31mENOARKjNi0lFbcHy_aU71s6ts6QvCeom_ZujVzo01EjNP-AzKlyYtVYGL-qqAnFoboDLuYb3qbSI2OMvh9BgMNFFDIM_s749SmTq774Dc9wlen4Bx-5MEPPaaiTndoGJq1tFqBKQALLLTHC1KF6u3PsQg7f_U_BbHhd44m17OECdGwpOJ3R321bv0LILQE7vkVMdQfm28X4-lkekGFDYfrp9ByfaCoRw1LojxbXsA-mwfQDGuqH5ET66kws8klY"/>
+                <div class="w-10 h-10 rounded-full bg-surface-container-highest border-2 border-surface flex items-center justify-center text-[10px] font-bold text-primary">+2k</div>
+            </div>
+            <span class="text-on-surface-variant font-label text-sm font-medium tracking-wide">2,405 Active Players Currently In-Game</span>
+        </div>
+    </section>
+    <!-- Room Creation Card -->
+    <section class="lg:col-span-5">
+        <div class="glass-panel p-8 rounded-[2rem] shadow-2xl relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 blur-3xl rounded-full -mr-16 -mt-16"></div>
+            <h2 class="font-headline text-2xl font-bold text-on-surface mb-8">Enter the Lobby</h2>
+            <div class="flex flex-col gap-6">
+                <div class="space-y-2">
+                    <label class="font-label text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Display Name</label>
+                    <input class="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-5 py-4 font-body text-on-surface focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all outline-none" type="text" value="Test"/>
+                </div>
+                <div class="space-y-2">
+                    <label class="font-label text-xs font-bold uppercase tracking-widest text-on-surface-variant ml-1">Room Code</label>
+                    <div class="relative">
+                        <input class="w-full bg-surface-container-lowest border border-outline-variant/30 rounded-xl px-5 py-4 font-body text-on-surface placeholder:text-on-surface-variant/40 focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all outline-none uppercase tracking-widest" placeholder="A B C D" type="text"/>
+                        <span class="absolute right-4 top-1/2 -translate-y-1/2 material-symbols-outlined text-on-surface-variant/50">qr_code</span>
+                    </div>
+                </div>
+                <div class="flex flex-col gap-3 pt-4">
+                    <button class="w-full py-4 rounded-xl bg-gradient-to-r from-primary to-primary-container text-on-primary-container font-headline font-extrabold text-lg shadow-[0_0_20px_rgba(168,255,225,0.2)] hover:shadow-[0_0_30px_rgba(168,255,225,0.4)] active:scale-[0.98] transition-all">
+                        Create room
+                    </button>
+                    <button class="w-full py-4 rounded-xl bg-surface-container-high border border-outline-variant/20 text-on-surface font-headline font-bold text-lg hover:bg-surface-container-highest transition-all active:scale-[0.98]">
+                        Join room
+                    </button>
+                </div>
+            </div>
+            <div class="mt-8 pt-6 border-t border-outline-variant/10 flex items-center justify-between text-[10px] uppercase font-bold tracking-tighter text-on-surface-variant/60">
+                <span>SECURE SESSION ID: PHANTOM-42</span>
+                <span class="flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span> SYSTEM READY</span>
+            </div>
+        </div>
+    </section>
+    <!-- Features Bento Grid -->
+    <section class="lg:col-span-12 grid grid-cols-1 md:grid-cols-3 gap-6 mt-12">
+        <!-- Feature 1 -->
+        <div class="glass-panel p-6 rounded-2xl group hover:border-primary/30 transition-all">
+            <div class="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <span class="material-symbols-outlined text-primary">gavel</span>
+            </div>
+            <h3 class="font-headline text-lg font-bold text-on-surface mb-2">Raise with legal claim steps</h3>
+            <p class="font-body text-sm text-on-surface-variant leading-relaxed">Systematically escalate the stakes using verified claiming mechanics that ensure every lie has a consequence.</p>
+        </div>
+        <!-- Feature 2 -->
+        <div class="glass-panel p-6 rounded-2xl group hover:border-secondary/30 transition-all">
+            <div class="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <span class="material-symbols-outlined text-secondary">smart_toy</span>
+            </div>
+            <h3 class="font-headline text-lg font-bold text-on-surface mb-2">Bring humans and host-added bots</h3>
+            <p class="font-body text-sm text-on-surface-variant leading-relaxed">Fill the table with friends or challenge our adaptive AI bots designed to mimic professional psychological play.</p>
+        </div>
+        <!-- Feature 3 -->
+        <div class="glass-panel p-6 rounded-2xl group hover:border-tertiary/30 transition-all">
+            <div class="w-12 h-12 rounded-xl bg-tertiary/10 flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                <span class="material-symbols-outlined text-tertiary">timer</span>
+            </div>
+            <h3 class="font-headline text-lg font-bold text-on-surface mb-2">Live turn timer with host pause</h3>
+            <p class="font-body text-sm text-on-surface-variant leading-relaxed">Keep the momentum high with precise turn tracking. Hosts maintain total control over the flow of the session.</p>
+        </div>
+    </section>
+</main>
+<!-- BottomNavBar (Mobile Only) -->
+<nav class="fixed bottom-0 w-full z-50 flex justify-around items-center py-3 md:hidden bg-[#000000]/80 backdrop-blur-lg border-t border-[#cfbcff]/15 shadow-[0_-10px_30px_rgba(0,0,0,0.5)] rounded-t-[1.5rem]">
+    <div class="flex flex-col items-center justify-center text-[#a8ffe1] drop-shadow-[0_0_10px_rgba(168,255,225,0.6)]">
+        <span class="material-symbols-outlined">style</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Tables</span>
+    </div>
+    <div class="flex flex-col items-center justify-center text-[#a6a7d4]/60">
+        <span class="material-symbols-outlined">casino</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Bluff</span>
+    </div>
+    <div class="flex flex-col items-center justify-center text-[#a6a7d4]/60">
+        <span class="material-symbols-outlined">groups</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Social</span>
+    </div>
+    <div class="flex flex-col items-center justify-center text-[#a6a7d4]/60">
+        <span class="material-symbols-outlined">person</span>
+        <span class="font-['Inter'] font-medium text-[10px]">Profile</span>
+    </div>
+</nav>
+<!-- Aesthetic Floating Elements -->
+<div class="fixed top-[20%] right-[5%] pointer-events-none opacity-40 mix-blend-screen hidden lg:block">
+    <div class="w-64 h-96 glass-panel rounded-3xl rotate-12 border-primary/20 p-4">
+        <div class="w-full h-full border border-dashed border-primary/20 rounded-2xl flex flex-col items-center justify-center gap-2">
+            <span class="material-symbols-outlined text-primary text-5xl">lock_open</span>
+            <span class="text-primary font-bold text-xs">ENCRYPTED DECK</span>
+        </div>
+    </div>
+</div>
+</body></html>

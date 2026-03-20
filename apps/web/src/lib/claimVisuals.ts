@@ -1,4 +1,10 @@
-import type { Card, Claim, Rank, Suit } from '@bluff-game/shared';
+import {
+  type Card,
+  type Claim,
+  type Rank,
+  type Suit,
+  createCard,
+} from '@bluff-game/shared';
 
 const SUIT_ORDER: Suit[] = ['spades', 'hearts', 'clubs', 'diamonds'];
 const STRAIGHT_PREVIEW_SUITS: Suit[] = [
@@ -27,55 +33,78 @@ function straightRanks(lowRank: number): Rank[] {
   ];
 }
 
+const FLUSH_PREVIEW_FILLER_RANKS = [14, 13, 12, 11, 9].map(asRank);
+
 export function claimToIllustrationCards(claim: Claim): Card[] {
   switch (claim.category) {
     case 'high-card':
-      return [{ rank: claim.rank, suit: 'spades' }];
+      return [createCard(claim.rank, 'spades')];
     case 'pair':
       return [
-        { rank: claim.pairRank, suit: 'spades' },
-        { rank: claim.pairRank, suit: 'hearts' },
+        createCard(claim.pairRank, 'spades'),
+        createCard(claim.pairRank, 'hearts'),
       ];
     case 'two-pair':
       return [
-        { rank: claim.highPairRank, suit: 'spades' },
-        { rank: claim.highPairRank, suit: 'hearts' },
-        { rank: claim.lowPairRank, suit: 'clubs' },
-        { rank: claim.lowPairRank, suit: 'diamonds' },
+        createCard(claim.highPairRank, 'spades'),
+        createCard(claim.highPairRank, 'hearts'),
+        createCard(claim.lowPairRank, 'clubs'),
+        createCard(claim.lowPairRank, 'diamonds'),
       ];
     case 'three-of-a-kind':
       return [
-        { rank: claim.tripRank, suit: 'spades' },
-        { rank: claim.tripRank, suit: 'hearts' },
-        { rank: claim.tripRank, suit: 'clubs' },
+        createCard(claim.tripRank, 'spades'),
+        createCard(claim.tripRank, 'hearts'),
+        createCard(claim.tripRank, 'clubs'),
       ];
     case 'straight':
-      return straightRanks(claim.lowRank).map((rank, index) => ({
-        rank,
-        suit: STRAIGHT_PREVIEW_SUITS[index] ?? 'spades',
-      }));
+      return straightRanks(claim.lowRank).map((rank, index) =>
+        createCard(rank, STRAIGHT_PREVIEW_SUITS[index] ?? 'spades'),
+      );
     case 'flush':
-      return [14, 13, 12, 11, 9].map((rank) => ({
-        rank: asRank(rank),
-        suit: claim.suit,
-      }));
+      return claim.rank === undefined
+        ? FLUSH_PREVIEW_FILLER_RANKS.map((rank) => createCard(rank, claim.suit))
+        : [
+            ...FLUSH_PREVIEW_FILLER_RANKS.filter((rank) => rank !== claim.rank)
+              .slice(0, 4)
+              .map((rank) => createCard(rank, claim.suit)),
+            createCard(claim.rank, claim.suit),
+          ];
     case 'full-house':
       return [
-        { rank: claim.tripRank, suit: 'spades' },
-        { rank: claim.tripRank, suit: 'hearts' },
-        { rank: claim.tripRank, suit: 'clubs' },
-        { rank: claim.pairRank, suit: 'diamonds' },
-        { rank: claim.pairRank, suit: 'spades' },
+        createCard(claim.tripRank, 'spades'),
+        createCard(claim.tripRank, 'hearts'),
+        createCard(claim.tripRank, 'clubs'),
+        createCard(claim.pairRank, 'diamonds'),
+        createCard(claim.pairRank, 'spades'),
       ];
     case 'four-of-a-kind':
-      return SUIT_ORDER.map((suit) => ({
-        rank: claim.quadRank,
-        suit,
-      }));
+      return SUIT_ORDER.map((suit) => createCard(claim.quadRank, suit));
     case 'straight-flush':
-      return straightRanks(claim.lowRank).map((rank) => ({
-        rank,
-        suit: claim.suit,
-      }));
+      return straightRanks(claim.lowRank).map((rank) =>
+        createCard(rank, claim.suit),
+      );
   }
+}
+
+export function claimToBuilderIllustrationCards(
+  claim: Claim,
+  stepId?: string,
+): Card[] {
+  if (claim.category === 'two-pair' && stepId === 'highPairRank') {
+    return [
+      createCard(claim.highPairRank, 'spades'),
+      createCard(claim.highPairRank, 'hearts'),
+    ];
+  }
+
+  if (claim.category === 'full-house' && stepId === 'tripRank') {
+    return [
+      createCard(claim.tripRank, 'spades'),
+      createCard(claim.tripRank, 'hearts'),
+      createCard(claim.tripRank, 'clubs'),
+    ];
+  }
+
+  return claimToIllustrationCards(claim);
 }
