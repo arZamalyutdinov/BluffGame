@@ -18,6 +18,7 @@ function buildLobbySnapshot(
     phase: 'lobby',
     selfPlayerId: 'p1',
     hostPlayerId: 'p1',
+    serverNowMs: Date.now(),
     settings: DEFAULT_ROOM_SETTINGS,
     players: [
       {

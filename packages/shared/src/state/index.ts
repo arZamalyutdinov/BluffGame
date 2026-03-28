@@ -111,6 +111,7 @@ export interface RoomSnapshot {
   phase: RoomPhase;
   selfPlayerId: string;
   hostPlayerId: string;
+  serverNowMs: number;
   settings: RoomSettings;
   players: PlayerSnapshot[];
   chatMessages: RoomChatMessageSnapshot[];

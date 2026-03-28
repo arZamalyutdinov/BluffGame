@@ -256,6 +256,7 @@ export class RoomRegistry {
       phase: room.phase,
       selfPlayerId: viewer.playerId,
       hostPlayerId: room.hostPlayerId,
+      serverNowMs: this.now(),
       settings: room.settings,
       players,
       chatMessages: [...room.chatMessages],

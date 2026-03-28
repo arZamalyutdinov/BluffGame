@@ -50,6 +50,7 @@ import '../tableScene.css';
 
 interface TableViewProps {
   snapshot: RoomSnapshot;
+  serverClockOffsetMs: number;
   isConnected: boolean;
   pendingCommand: string | null;
   isTablePanelOpen: boolean;
@@ -81,6 +82,10 @@ function formatRemainingMs(remainingMs: number): string {
   const seconds = totalSeconds % 60;
 
   return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
+function estimateServerNowMs(serverClockOffsetMs: number): number {
+  return Date.now() - serverClockOffsetMs;
 }
 
 function sortPlayersBySeat(snapshot: RoomSnapshot): PlayerSnapshot[] {
@@ -289,6 +294,7 @@ function buildDealFlightStyle(
 
 export function TableView({
   snapshot,
+  serverClockOffsetMs,
   isConnected,
   pendingCommand,
   isTablePanelOpen,
@@ -304,7 +310,9 @@ export function TableView({
 }: TableViewProps) {
   const { catalog, formatClaimCompactLabel, formatClaimLabel, t } = useLocale();
   const match = snapshot.match;
-  const [nowMs, setNowMs] = useState(() => Date.now());
+  const [nowMs, setNowMs] = useState(() =>
+    estimateServerNowMs(serverClockOffsetMs),
+  );
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
   const [claimComposerStage, setClaimComposerStage] = useState<
     'closed' | 'opening' | 'open' | 'closing'
@@ -340,7 +348,7 @@ export function TableView({
     Boolean(match.showdown || match.timeout);
 
   useEffect(() => {
-    setNowMs(Date.now());
+    setNowMs(estimateServerNowMs(serverClockOffsetMs));
 
     if (
       !isDealingPhase &&
@@ -352,7 +360,7 @@ export function TableView({
 
     const intervalId = window.setInterval(
       () => {
-        setNowMs(Date.now());
+        setNowMs(estimateServerNowMs(serverClockOffsetMs));
       },
       isDealingPhase || isResultPhase ? 80 : 250,
     );
@@ -360,7 +368,7 @@ export function TableView({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isDealingPhase, isResultPhase, turnTimer]);
+  }, [isDealingPhase, isResultPhase, serverClockOffsetMs, turnTimer]);
 
   useEffect(() => {
     const isClaimComposerVisible = claimComposerStage !== 'closed';

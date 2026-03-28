@@ -46,6 +46,7 @@ interface RoomConnectionState {
   isConnected: boolean;
   pendingCommand: string | null;
   error: AppErrorInfo | null;
+  serverClockOffsetMs: number;
 }
 
 export function AppShell() {
@@ -379,6 +380,7 @@ function RoomPage() {
     isConnected: false,
     pendingCommand: null,
     error: null,
+    serverClockOffsetMs: 0,
   });
   const [isTablePanelOpen, setIsTablePanelOpen] = useState(false);
 
@@ -426,6 +428,7 @@ function RoomPage() {
     });
 
     socket.on('roomSnapshot', (payload) => {
+      const receivedAtMs = Date.now();
       const snapshot = roomSnapshotSchema.parse(payload) as RoomSnapshot;
 
       setState((current) => ({
@@ -433,6 +436,9 @@ function RoomPage() {
         snapshot,
         error: null,
         pendingCommand: null,
+        // Keep server-authored timers and reveal phases aligned even when a
+        // player's local browser clock is skewed.
+        serverClockOffsetMs: receivedAtMs - snapshot.serverNowMs,
       }));
     });
 
@@ -528,6 +534,7 @@ function RoomPage() {
       ) : (
         <TableView
           snapshot={state.snapshot}
+          serverClockOffsetMs={state.serverClockOffsetMs}
           isConnected={state.isConnected}
           pendingCommand={state.pendingCommand}
           isTablePanelOpen={isTablePanelOpen}
