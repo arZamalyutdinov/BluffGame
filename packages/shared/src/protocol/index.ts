@@ -225,6 +225,7 @@ export const roomSnapshotSchema = z.object({
   phase: z.enum(['lobby', 'in-match', 'match-complete']),
   selfPlayerId: z.string().min(1),
   hostPlayerId: z.string().min(1),
+  serverNowMs: z.number().int().nonnegative(),
   settings: roomSettingsSchema,
   players: z.array(
     z.object({

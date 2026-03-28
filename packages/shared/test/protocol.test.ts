@@ -20,6 +20,7 @@ describe('shared dealing contract', () => {
       phase: 'in-match',
       selfPlayerId: 'p1',
       hostPlayerId: 'p1',
+      serverNowMs: 1_710_000_000_000,
       settings: {
         eliminationHandSize: 5,
         claimOrderPreset: 'flush-below-straight',
@@ -89,6 +90,7 @@ describe('shared dealing contract', () => {
       phase: 'in-match',
       selfPlayerId: 'p1',
       hostPlayerId: 'p1',
+      serverNowMs: 1_710_000_000_000,
       settings: {
         eliminationHandSize: 5,
         claimOrderPreset: 'flush-below-straight',
@@ -158,6 +160,7 @@ describe('shared dealing contract', () => {
       phase: 'in-match',
       selfPlayerId: 'p1',
       hostPlayerId: 'p1',
+      serverNowMs: 1_710_000_100_000,
       settings: {
         eliminationHandSize: 5,
         claimOrderPreset: 'flush-below-straight',
@@ -240,6 +243,7 @@ describe('shared dealing contract', () => {
       phase: 'in-match',
       selfPlayerId: 'p1',
       hostPlayerId: 'p2',
+      serverNowMs: 1_710_000_000_000,
       settings: {
         eliminationHandSize: 5,
         claimOrderPreset: 'flush-below-straight',
@@ -324,6 +328,7 @@ describe('shared dealing contract', () => {
       phase: 'in-match',
       selfPlayerId: 'p1',
       hostPlayerId: 'p1',
+      serverNowMs: 1_710_000_200_000,
       settings: {
         eliminationHandSize: 5,
         claimOrderPreset: 'flush-below-straight',

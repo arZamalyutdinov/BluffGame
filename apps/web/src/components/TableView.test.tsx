@@ -45,6 +45,7 @@ type MatchOverrides = Omit<
 
 interface SnapshotOverrides {
   phase?: RoomSnapshot['phase'];
+  serverNowMs?: RoomSnapshot['serverNowMs'];
   settings?: RoomSnapshot['settings'];
   players?: RoomSnapshot['players'];
   chatMessages?: RoomSnapshot['chatMessages'];
@@ -143,6 +144,7 @@ function buildSnapshot(
     phase: 'in-match',
     selfPlayerId: 'p1',
     hostPlayerId: 'p1',
+    serverNowMs: Date.now(),
     settings: DEFAULT_ROOM_SETTINGS,
     players,
     chatMessages: [
@@ -205,6 +207,7 @@ function renderTable(snapshot: RoomSnapshot) {
   return renderToStaticMarkup(
     <TableView
       snapshot={snapshot}
+      serverClockOffsetMs={0}
       isConnected
       pendingCommand={null}
       isTablePanelOpen={false}
@@ -547,6 +550,69 @@ describe('TableView match fixtures', () => {
 
     expect(beforeResolveMarkup).not.toContain('>Lost<');
     expect(afterResolveMarkup).toContain('>Lost<');
+  });
+
+  it('renders showdown reveals against estimated server time when the client clock is skewed', () => {
+    vi.setSystemTime(new Date('2026-03-20T11:58:00.000Z'));
+
+    const skewedSnapshot = buildSnapshot(4, {
+      serverNowMs: new Date('2026-03-20T12:00:05.000Z').getTime(),
+      match: {
+        phase: 'showing-result',
+        showdown: {
+          startedAtMs: new Date('2026-03-20T12:00:00.000Z').getTime(),
+          spokenClaim: buildPairClaim(12),
+          claimantPlayerId: 'p2',
+          challengerPlayerId: 'p3',
+          claimWasValid: true,
+          loserPlayerId: 'p3',
+          loserHandSize: 4,
+          loserEliminated: false,
+          revealedHands: [
+            {
+              playerId: 'p1',
+              cards: [buildCard(12, 'spades'), buildCard(2, 'clubs')],
+            },
+            {
+              playerId: 'p2',
+              cards: [buildCard(12, 'hearts'), buildCard(9, 'diamonds')],
+            },
+            {
+              playerId: 'p3',
+              cards: [buildCard(8, 'clubs'), buildCard(5, 'hearts')],
+            },
+          ],
+          deckDraws: [],
+        },
+      },
+    });
+    const markup = renderToStaticMarkup(
+      <TableView
+        snapshot={skewedSnapshot}
+        serverClockOffsetMs={
+          new Date('2026-03-20T11:58:00.000Z').getTime() -
+          skewedSnapshot.serverNowMs
+        }
+        isConnected
+        pendingCommand={null}
+        isTablePanelOpen={false}
+        onSubmitClaim={() => {}}
+        onChallengeClaim={() => {}}
+        onSetPauseState={() => {}}
+        onRestartMatch={() => {}}
+        onKickPlayer={() => {}}
+        onBecomeSpectator={() => {}}
+        onSetSpectatorCardReveal={() => {}}
+        onSendChatMessage={() => {}}
+        onSetTablePanelOpen={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('Claim found');
+    expect(markup).toContain('>Lost<');
+    expect(markup).toContain(
+      'poker-result-seat-reveal seat-placement-top is-revealed',
+    );
   });
 
   it('renders the match-complete state with the host restart action', () => {
