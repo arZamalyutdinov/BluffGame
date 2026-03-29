@@ -1,8 +1,8 @@
 import { useEffect, useRef } from 'react';
 
 import {
-  getAmbientSceneAnimationPolicy,
   type AmbientSceneVariant,
+  getAmbientSceneAnimationPolicy,
 } from '../lib/ambientScene.js';
 
 interface AmbientSceneCanvasProps {
@@ -232,7 +232,10 @@ export function AmbientSceneCanvas({
 
     resizeCanvas();
     window.addEventListener('resize', resizeCanvas);
-    document.addEventListener('visibilitychange', handleVisibilityOrMotionChange);
+    document.addEventListener(
+      'visibilitychange',
+      handleVisibilityOrMotionChange,
+    );
     reducedMotionQuery.addEventListener(
       'change',
       handleVisibilityOrMotionChange,
