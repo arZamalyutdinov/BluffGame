@@ -1,7 +1,12 @@
 import { useEffect, useRef } from 'react';
 
+import {
+  getAmbientSceneAnimationPolicy,
+  type AmbientSceneVariant,
+} from '../lib/ambientScene.js';
+
 interface AmbientSceneCanvasProps {
-  variant?: 'home' | 'room';
+  variant?: AmbientSceneVariant;
   className?: string;
 }
 
@@ -14,7 +19,7 @@ interface BlobConfig {
   originY: number;
 }
 
-function buildBlobs(variant: 'home' | 'room'): BlobConfig[] {
+function buildBlobs(variant: AmbientSceneVariant): BlobConfig[] {
   if (variant === 'room') {
     return [
       {
@@ -94,26 +99,16 @@ export function AmbientSceneCanvas({
     const sceneCanvas = canvas;
     const sceneContext = context;
     const blobs = buildBlobs(variant);
-    const reducedMotion = window.matchMedia(
+    const reducedMotionQuery = window.matchMedia(
       '(prefers-reduced-motion: reduce)',
-    ).matches;
+    );
     let width = 0;
     let height = 0;
     let animationFrameId = 0;
-
-    function resizeCanvas() {
-      const nextWidth = sceneCanvas.clientWidth;
-      const nextHeight = sceneCanvas.clientHeight;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-
-      width = nextWidth;
-      height = nextHeight;
-      sceneCanvas.width = Math.max(1, Math.floor(nextWidth * dpr));
-      sceneCanvas.height = Math.max(1, Math.floor(nextHeight * dpr));
-      sceneContext.setTransform(dpr, 0, 0, dpr, 0, 0);
-    }
+    let lastDrawTimeMs = 0;
 
     function drawFrame(time: number) {
+      lastDrawTimeMs = time;
       sceneContext.clearRect(0, 0, width, height);
 
       for (const blob of blobs) {
@@ -149,7 +144,7 @@ export function AmbientSceneCanvas({
       sceneContext.lineWidth = 1;
 
       for (let index = 0; index < 6; index += 1) {
-        const curveOffset = reducedMotion
+        const curveOffset = reducedMotionQuery.matches
           ? index * 20
           : index * 24 + time * 0.006;
 
@@ -165,20 +160,97 @@ export function AmbientSceneCanvas({
         );
         sceneContext.stroke();
       }
+    }
 
-      if (!reducedMotion) {
-        animationFrameId = window.requestAnimationFrame(drawFrame);
+    function drawCurrentFrame() {
+      drawFrame(window.performance.now());
+    }
+
+    function getAnimationPolicy() {
+      return getAmbientSceneAnimationPolicy({
+        variant,
+        prefersReducedMotion: reducedMotionQuery.matches,
+        isDocumentHidden: document.hidden,
+      });
+    }
+
+    function resizeCanvas() {
+      const nextWidth = sceneCanvas.clientWidth;
+      const nextHeight = sceneCanvas.clientHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+      width = nextWidth;
+      height = nextHeight;
+      sceneCanvas.width = Math.max(1, Math.floor(nextWidth * dpr));
+      sceneCanvas.height = Math.max(1, Math.floor(nextHeight * dpr));
+      sceneContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawCurrentFrame();
+    }
+
+    function cancelAnimationLoop() {
+      if (animationFrameId === 0) {
+        return;
       }
+
+      window.cancelAnimationFrame(animationFrameId);
+      animationFrameId = 0;
+    }
+
+    function handleAnimationFrame(time: number) {
+      animationFrameId = 0;
+
+      const policy = getAnimationPolicy();
+
+      if (!policy.shouldAnimate || policy.minimumFrameIntervalMs === null) {
+        return;
+      }
+
+      if (time - lastDrawTimeMs >= policy.minimumFrameIntervalMs) {
+        drawFrame(time);
+      }
+
+      animationFrameId = window.requestAnimationFrame(handleAnimationFrame);
+    }
+
+    function syncAnimationLoop() {
+      cancelAnimationLoop();
+
+      if (!getAnimationPolicy().shouldAnimate) {
+        return;
+      }
+
+      animationFrameId = window.requestAnimationFrame(handleAnimationFrame);
+    }
+
+    function handleVisibilityOrMotionChange() {
+      if (!document.hidden) {
+        drawCurrentFrame();
+      }
+
+      syncAnimationLoop();
     }
 
     resizeCanvas();
-    drawFrame(0);
-
     window.addEventListener('resize', resizeCanvas);
+    document.addEventListener('visibilitychange', handleVisibilityOrMotionChange);
+    reducedMotionQuery.addEventListener(
+      'change',
+      handleVisibilityOrMotionChange,
+    );
+
+    syncAnimationLoop();
 
     return () => {
-      window.cancelAnimationFrame(animationFrameId);
+      cancelAnimationLoop();
       window.removeEventListener('resize', resizeCanvas);
+      document.removeEventListener(
+        'visibilitychange',
+        handleVisibilityOrMotionChange,
+      );
+      reducedMotionQuery.removeEventListener(
+        'change',
+        handleVisibilityOrMotionChange,
+      );
     };
   }, [variant]);
 
