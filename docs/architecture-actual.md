@@ -177,6 +177,12 @@ Bootstrap failures also return stable error payloads with a machine-readable
 `code` plus an optional fallback `message`, so the web app can localize
 user-facing errors without depending on raw English transport strings.
 
+While a room page is open, the browser also sends a lightweight periodic
+`GET /health` keepalive. This is a deployment mitigation for free-tier hosts
+that may otherwise sleep long enough to wipe the server's in-memory room map.
+It reduces sleep-related room loss, but it does not make rooms durable across a
+true process restart.
+
 `RoomSession` contains:
 
 - `roomCode`
@@ -433,6 +439,7 @@ The browser stores room sessions in `localStorage` under:
 - `bluffgame/session/<ROOM_CODE>`
 - `bluffgame/display-name`
 - `bluffgame/locale`
+- `bluffgame/ui-preferences`
 
 This enables simple reconnect behavior after refresh, as long as the room still
 exists in server memory, while locale choice persists independently per
@@ -460,23 +467,23 @@ Current components are intentionally thin:
 - `TableView`: local hand, separate claim-to-beat panel, turn state,
   authoritative countdown, host pause control, an animated round-resolution
   overlay that reveals hands and tries to build the spoken claim before the
-  textual result panels appear, a unified top play strip for `Your hand`,
-  `Selected claim`, and `Claim to beat` with equal-width panels, a desktop
-  left-side player panel that keeps names visible in stable seat order and uses
-  expandable rows to reveal each player's played-hand history as compact card
-  previews, a right-side room-chat rail with the live turn clock above it, and
-  a persistent `Check` action placed directly near the claim-to-beat panel
-  instead of inside it; on mobile, the match header exposes `Show table` and
-  `Show chat` buttons that open separate left and right drawers, and the
-  separate `Selected claim` panel is removed from the stacked mobile layout,
-  and eliminated viewers switch to a spectator footer plus a Players drawer
-  split between Active and Spectators rows
+  textual result panels appear, a table-side chronological round-claims rail on
+  desktop that collapses into a mobile sheet, a browser-local game-options
+  popover for personal match preferences such as automatically opening the
+  claim builder on your turn, a right-side room-chat rail with the live turn
+  clock above it, and a persistent `Check` action placed directly near the
+  claim-to-beat panel instead of inside it; on mobile, the match header exposes
+  `Show table`, `Show chat`, and `Claims` drawers, and eliminated viewers
+  switch to a spectator footer plus a Players drawer split between Active and
+  Spectators rows
 - `RoomChat`: snapshot-backed chat log plus a single send-message form with a
   dependency-backed emoji picker
 - `ClaimComposer`: compact category pills plus filtered rank/suit controls built
   from the room's selected claim-order preset and flush rule; composite claims
-  are spoken progressively by parts, with flushes optionally using a suit-first
-  then named-card flow when the room enables `suit-plus-rank`
+  are spoken progressively by parts, flushes optionally use a suit-first then
+  named-card flow when the room enables `suit-plus-rank`, and a localized fuzzy
+  search indexes the finite legal claim list so players can jump directly to a
+  valid claim without bypassing the normal submit step
 - locale catalogs under `apps/web/src/lib/i18n/`: typed English and Russian
   UI copy, suit names, combination names, localized face-rank display labels,
   and transport-error messages

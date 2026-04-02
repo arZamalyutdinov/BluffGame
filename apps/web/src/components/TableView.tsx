@@ -18,6 +18,12 @@ import {
 } from '@bluff-game/shared';
 
 import { claimToIllustrationCards } from '../lib/claimVisuals.js';
+import {
+  buildClaimComposerTurnToken,
+  getStoredGameUiPreferences,
+  saveGameUiPreferences,
+  shouldAutoOpenClaimComposer,
+} from '../lib/gameUiPreferences.js';
 import { useLocale } from '../lib/i18n/index.js';
 import {
   getPlayerInitials,
@@ -34,7 +40,9 @@ import {
   BotIcon,
   CardsIcon,
   ChatIcon,
+  ClaimListIcon,
   CrownIcon,
+  OptionsIcon,
   ReadyIcon,
   SeatsIcon,
   SignalIcon,
@@ -74,6 +82,18 @@ interface DealFlight {
   cardOrdinal: number;
   startsAtMs: number;
   arrivesAtMs: number;
+}
+
+const COMPACT_MATCH_LAYOUT_MEDIA_QUERY = '(max-width: 900px)';
+
+function isCompactMatchLayout(): boolean {
+  return typeof window !== 'undefined'
+    ? window.matchMedia(COMPACT_MATCH_LAYOUT_MEDIA_QUERY).matches
+    : false;
+}
+
+function getDefaultRoundClaimsPanelOpen(): boolean {
+  return !isCompactMatchLayout();
 }
 
 function formatRemainingMs(remainingMs: number): string {
@@ -310,10 +330,23 @@ export function TableView({
 }: TableViewProps) {
   const { catalog, formatClaimCompactLabel, formatClaimLabel, t } = useLocale();
   const match = snapshot.match;
+  const [isCompactLayout, setIsCompactLayout] = useState(() =>
+    isCompactMatchLayout(),
+  );
   const [nowMs, setNowMs] = useState(() =>
     estimateServerNowMs(serverClockOffsetMs),
   );
+  const [isClaimsPanelOpen, setIsClaimsPanelOpen] = useState(() =>
+    getDefaultRoundClaimsPanelOpen(),
+  );
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
+  const [isOptionsPanelOpen, setIsOptionsPanelOpen] = useState(false);
+  const [gameUiPreferences, setGameUiPreferences] = useState(() =>
+    getStoredGameUiPreferences(),
+  );
+  const [dismissedAutoOpenTurnToken, setDismissedAutoOpenTurnToken] = useState<
+    string | null
+  >(null);
   const [claimComposerStage, setClaimComposerStage] = useState<
     'closed' | 'opening' | 'open' | 'closing'
   >('closed');
@@ -340,6 +373,10 @@ export function TableView({
   const previousTurnPlayerIdRef = useRef<string | null>(null);
   const previousClaimSequenceRef = useRef<number | null>(null);
   const previousRenderedClaimRef = useRef<ClaimHistoryEntry | null>(null);
+  const autoOpenedClaimComposerTurnTokenRef = useRef<string | null>(null);
+  const claimComposerOpenSourceRef = useRef<'manual' | 'automatic' | null>(
+    null,
+  );
   const dealing = match?.dealing;
   const turnTimer = match?.turnTimer;
   const isDealingPhase = match?.phase === 'dealing' && Boolean(dealing);
@@ -371,9 +408,33 @@ export function TableView({
   }, [isDealingPhase, isResultPhase, serverClockOffsetMs, turnTimer]);
 
   useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia(COMPACT_MATCH_LAYOUT_MEDIA_QUERY);
+    const updateLayout = () => {
+      setIsCompactLayout(mediaQuery.matches);
+    };
+
+    updateLayout();
+    mediaQuery.addEventListener('change', updateLayout);
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateLayout);
+    };
+  }, []);
+
+  useEffect(() => {
     const isClaimComposerVisible = claimComposerStage !== 'closed';
 
-    if (!isTablePanelOpen && !isChatPanelOpen && !isClaimComposerVisible) {
+    if (
+      !isTablePanelOpen &&
+      !isChatPanelOpen &&
+      !isClaimComposerVisible &&
+      !isOptionsPanelOpen &&
+      !(isCompactLayout && isClaimsPanelOpen)
+    ) {
       return;
     }
 
@@ -381,8 +442,12 @@ export function TableView({
       if (event.key === 'Escape') {
         onSetTablePanelOpen(false);
         setIsChatPanelOpen(false);
+        setIsOptionsPanelOpen(false);
+        if (isCompactLayout) {
+          setIsClaimsPanelOpen(false);
+        }
         if (isClaimComposerVisible) {
-          setClaimComposerStage('closing');
+          closeClaimComposer('manual');
         }
       }
     }
@@ -394,7 +459,10 @@ export function TableView({
     };
   }, [
     claimComposerStage,
+    isClaimsPanelOpen,
     isChatPanelOpen,
+    isCompactLayout,
+    isOptionsPanelOpen,
     isTablePanelOpen,
     onSetTablePanelOpen,
   ]);
@@ -440,6 +508,7 @@ export function TableView({
     currentMatch.phase === 'dealing' && Boolean(currentMatch.dealing);
   const isShowingResult = currentMatch.phase === 'showing-result';
   const isResolutionStageOpen = Boolean(activeResolution) && isShowingResult;
+  const hasDesktopClaimsRail = !isCompactLayout && isClaimsPanelOpen;
   const spectatorView = currentMatch.spectator;
   const isSpectator = spectatorView?.isSpectator ?? false;
 
@@ -704,6 +773,10 @@ export function TableView({
     !isPaused &&
     !isShowingResult &&
     !actionDisabled;
+  const claimComposerTurnToken = buildClaimComposerTurnToken(
+    currentMatch,
+    snapshot.selfPlayerId,
+  );
   const dockMessage = winner
     ? catalog.table.winnerMessage(winner.name)
     : isDealing
@@ -764,6 +837,7 @@ export function TableView({
     [dealtCountByPlayerId, isDealing, orderedPlayers],
   );
   const isClaimComposerVisible = claimComposerStage !== 'closed';
+  const isClaimsDrawerOpen = isCompactLayout && isClaimsPanelOpen;
 
   useEffect(() => {
     if (winner || isShowingResult || isDealing) {
@@ -834,8 +908,33 @@ export function TableView({
   useEffect(() => {
     if (!canOpenClaimComposer) {
       setClaimComposerStage('closed');
+      claimComposerOpenSourceRef.current = null;
     }
   }, [canOpenClaimComposer]);
+
+  useEffect(() => {
+    if (
+      !shouldAutoOpenClaimComposer({
+        preferences: gameUiPreferences,
+        canOpenClaimComposer,
+        isClaimComposerVisible,
+        turnToken: claimComposerTurnToken,
+        dismissedTurnToken: dismissedAutoOpenTurnToken,
+        autoOpenedTurnToken: autoOpenedClaimComposerTurnTokenRef.current,
+      })
+    ) {
+      return;
+    }
+
+    openClaimComposer('automatic');
+    autoOpenedClaimComposerTurnTokenRef.current = claimComposerTurnToken;
+  }, [
+    canOpenClaimComposer,
+    claimComposerTurnToken,
+    dismissedAutoOpenTurnToken,
+    gameUiPreferences,
+    isClaimComposerVisible,
+  ]);
 
   useEffect(() => {
     if (!isShowingResult) {
@@ -844,6 +943,7 @@ export function TableView({
 
     onSetTablePanelOpen(false);
     setIsChatPanelOpen(false);
+    setIsOptionsPanelOpen(false);
   }, [isShowingResult, onSetTablePanelOpen]);
 
   useEffect(() => {
@@ -867,6 +967,7 @@ export function TableView({
 
     const timeoutId = window.setTimeout(() => {
       setClaimComposerStage('closed');
+      claimComposerOpenSourceRef.current = null;
     }, 260);
 
     return () => {
@@ -920,17 +1021,27 @@ export function TableView({
     };
   }, [lastClaimEntry]);
 
-  function openClaimComposer() {
+  function openClaimComposer(source: 'manual' | 'automatic' = 'manual') {
     if (!canOpenClaimComposer) {
       return;
     }
 
+    setIsOptionsPanelOpen(false);
+    claimComposerOpenSourceRef.current = source;
     setClaimComposerStage((current) =>
       current === 'closed' ? 'opening' : current,
     );
   }
 
-  function closeClaimComposer() {
+  function closeClaimComposer(reason: 'manual' | 'system' = 'manual') {
+    if (
+      reason === 'manual' &&
+      claimComposerOpenSourceRef.current === 'automatic' &&
+      claimComposerTurnToken
+    ) {
+      setDismissedAutoOpenTurnToken(claimComposerTurnToken);
+    }
+
     setClaimComposerStage((current) => {
       if (current === 'closed' || current === 'closing') {
         return current;
@@ -938,6 +1049,155 @@ export function TableView({
 
       return 'closing';
     });
+  }
+
+  function updateGameUiPreferences(nextPreferences: typeof gameUiPreferences) {
+    setGameUiPreferences(nextPreferences);
+    saveGameUiPreferences(nextPreferences);
+  }
+
+  function renderRoundClaimsContent(showShellHeader = true) {
+    return (
+      <section className="poker-round-claims-panel">
+        {showShellHeader ? (
+          <div className="poker-round-claims-header">
+            <div className="poker-round-claims-title-block">
+              <p className="claim-panel-label">
+                {catalog.table.roundClaimsLabel}
+              </p>
+              <h2>{catalog.table.roundClaimsTitle}</h2>
+            </div>
+
+            <div className="poker-round-claims-actions">
+              <span className="pill connected">
+                <ClaimListIcon className="status-icon" />
+                {catalog.table.roundClaimsCount(
+                  currentMatch.claimHistory.length,
+                )}
+              </span>
+              <button
+                type="button"
+                className="ghost-button poker-table-control-button poker-round-claims-hide"
+                onClick={() => setIsClaimsPanelOpen(false)}
+              >
+                {catalog.table.hideClaims}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {currentMatch.claimHistory.length > 0 ? (
+          <div
+            className="poker-round-claims-list"
+            aria-label={catalog.table.roundClaimsTitle}
+          >
+            {currentMatch.claimHistory.map((entry) => {
+              const player = playersById.get(entry.playerId);
+              const isCurrentClaim =
+                entry.sequenceNumber === lastClaimEntry?.sequenceNumber;
+
+              return (
+                <article
+                  key={entry.sequenceNumber}
+                  className={`poker-round-claims-entry ${
+                    isCurrentClaim ? 'is-current' : ''
+                  }`}
+                  aria-label={formatClaimLabel(entry.claim)}
+                >
+                  <span className="poker-round-claims-sequence">
+                    #{entry.sequenceNumber}
+                  </span>
+
+                  <div
+                    className="poker-round-claims-preview"
+                    aria-hidden="true"
+                  >
+                    <ClaimCardStack
+                      cards={claimToIllustrationCards(entry.claim)}
+                      compact
+                    />
+                  </div>
+
+                  <div className="poker-round-claims-copy">
+                    <div className="poker-round-claims-player">
+                      <strong>
+                        {player?.name ?? catalog.showdown.unknownPlayer}
+                      </strong>
+                      {isCurrentClaim ? (
+                        <span className="poker-round-claims-current">
+                          {catalog.table.currentClaimBadge}
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <span className="poker-round-claims-claim">
+                      {formatClaimCompactLabel(entry.claim)}
+                    </span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="poker-round-claims-empty muted-panel">
+            <p className="claim-panel-label">
+              {catalog.table.roundClaimsTitle}
+            </p>
+            <strong>{catalog.table.noClaimsYet}</strong>
+            <p className="claim-helper-text">
+              {catalog.table.roundClaimsEmpty}
+            </p>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  function renderRoundClaimsRail() {
+    return (
+      <aside
+        className={`poker-round-claims-rail ${
+          isClaimsPanelOpen ? 'is-open' : 'is-hidden'
+        } ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
+        aria-hidden={!isClaimsPanelOpen}
+      >
+        {renderRoundClaimsContent()}
+      </aside>
+    );
+  }
+
+  function renderOptionsPopover() {
+    return (
+      <section
+        id="game-options-panel"
+        className={`poker-options-popover ${
+          isOptionsPanelOpen ? 'is-open' : ''
+        }`}
+        aria-hidden={!isOptionsPanelOpen}
+      >
+        <div className="poker-options-header">
+          <p className="claim-panel-label">{catalog.table.gameOptionsLabel}</p>
+          <h2>{catalog.table.gameOptionsTitle}</h2>
+        </div>
+
+        <label className="poker-option-toggle">
+          <input
+            type="checkbox"
+            checked={gameUiPreferences.autoOpenClaimBuilderOnTurn}
+            onChange={(event) =>
+              updateGameUiPreferences({
+                ...gameUiPreferences,
+                autoOpenClaimBuilderOnTurn: event.target.checked,
+              })
+            }
+          />
+          <span className="poker-option-toggle-copy">
+            <strong>{catalog.table.autoOpenClaimBuilderOption}</strong>
+            <span>{catalog.table.autoOpenClaimBuilderHint}</span>
+          </span>
+        </label>
+      </section>
+    );
   }
 
   function renderChatRailContent(hideChatHeader = false) {
@@ -1688,7 +1948,7 @@ export function TableView({
         <button
           type="button"
           className="poker-claim-popup-scrim"
-          onClick={closeClaimComposer}
+          onClick={() => closeClaimComposer('manual')}
           aria-label={catalog.table.closeClaimBuilder}
         />
 
@@ -1716,7 +1976,7 @@ export function TableView({
             <button
               type="button"
               className="ghost-button poker-table-control-button poker-claim-popup-close"
-              onClick={closeClaimComposer}
+              onClick={() => closeClaimComposer('manual')}
             >
               {t('close')}
             </button>
@@ -1731,7 +1991,7 @@ export function TableView({
             {...(currentLastClaim ? { lastClaim: currentLastClaim } : {})}
             onSelectedClaimChange={setSelectedComposerClaim}
             onSubmit={(claimKey) => {
-              closeClaimComposer();
+              closeClaimComposer('system');
               onSubmitClaim(claimKey);
             }}
           />
@@ -1770,125 +2030,182 @@ export function TableView({
         <div
           className={`poker-table-stage ${timerUrgency === 'warning' ? 'is-warning-clock' : ''} ${timerUrgency === 'critical' ? 'is-critical-clock' : ''} ${isResolutionStageOpen ? 'is-showing-result' : ''}`}
         >
-          <div className="poker-table-scenery" aria-hidden="true">
-            <div className="poker-table-ambient poker-table-ambient-left" />
-            <div className="poker-table-ambient poker-table-ambient-right" />
-            <div className="poker-table-ambient-center" />
-            <div className="poker-table-foreground-glow" />
-          </div>
+          <div
+            className={`poker-table-play-area ${
+              hasDesktopClaimsRail ? 'has-desktop-claims-rail' : ''
+            }`}
+          >
+            <div className="poker-table-scenery" aria-hidden="true">
+              <div className="poker-table-ambient poker-table-ambient-left" />
+              <div className="poker-table-ambient poker-table-ambient-right" />
+              <div className="poker-table-ambient-center" />
+              <div className="poker-table-foreground-glow" />
+            </div>
 
-          <div className="poker-table-stage-inner">
-            <div
-              className={`poker-table-controls poker-table-controls-left ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
-            >
-              <button
-                type="button"
-                className="ghost-button poker-table-control-button"
-                aria-expanded={isTablePanelOpen}
-                aria-controls="table-drawer"
-                disabled={isShowingResult}
-                onClick={() => {
-                  setIsChatPanelOpen(false);
-                  onSetTablePanelOpen(!isTablePanelOpen);
-                }}
+            <div className="poker-table-stage-inner">
+              <div
+                className={`poker-table-controls poker-table-controls-left ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
               >
-                <SeatsIcon className="status-icon" />
-                {isTablePanelOpen ? catalog.table.hidePlayers : t('players')}
-              </button>
-
-              <button
-                type="button"
-                className="ghost-button poker-table-control-button"
-                aria-expanded={isChatPanelOpen}
-                aria-controls="chat-drawer"
-                disabled={isShowingResult}
-                onClick={() => {
-                  onSetTablePanelOpen(false);
-                  setIsChatPanelOpen((current) => !current);
-                }}
-              >
-                <ChatIcon className="status-icon" />
-                {isChatPanelOpen ? catalog.table.hideChat : t('chat')}
-              </button>
-
-              {isHost && turnTimer && !winner ? (
                 <button
                   type="button"
                   className="ghost-button poker-table-control-button"
-                  onClick={() => onSetPauseState(!isPaused)}
-                  disabled={
-                    !isConnected || pendingCommand !== null || isShowingResult
-                  }
+                  aria-expanded={isTablePanelOpen}
+                  aria-controls="table-drawer"
+                  disabled={isShowingResult}
+                  onClick={() => {
+                    setIsOptionsPanelOpen(false);
+                    setIsChatPanelOpen(false);
+                    if (isCompactLayout) {
+                      setIsClaimsPanelOpen(false);
+                    }
+                    onSetTablePanelOpen(!isTablePanelOpen);
+                  }}
                 >
-                  {isPaused ? t('resume') : t('pause')}
+                  <SeatsIcon className="status-icon" />
+                  {isTablePanelOpen ? catalog.table.hidePlayers : t('players')}
                 </button>
-              ) : null}
-            </div>
 
-            <div
-              className={`poker-table-controls poker-table-controls-right ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
-            >
-              <span className="pill ready poker-table-status">
-                <CardsIcon className="status-icon" />
-                {catalog.table.roomCode(snapshot.roomCode)}
-              </span>
-              {isDealing ? (
-                <span className="pill ready poker-table-status poker-table-dealing-status">
-                  <CardsIcon className="status-icon" />
-                  {catalog.table.dealingNow}
-                </span>
-              ) : null}
-              {turnTimer && remainingMs !== null ? (
-                <span
-                  className={`${isPaused ? 'pill idle' : 'pill connected'} poker-table-status poker-table-timer timer-pill-${timerUrgency}`}
+                <button
+                  type="button"
+                  className="ghost-button poker-table-control-button"
+                  aria-expanded={isChatPanelOpen}
+                  aria-controls="chat-drawer"
+                  disabled={isShowingResult}
+                  onClick={() => {
+                    setIsOptionsPanelOpen(false);
+                    onSetTablePanelOpen(false);
+                    if (isCompactLayout) {
+                      setIsClaimsPanelOpen(false);
+                    }
+                    setIsChatPanelOpen((current) => !current);
+                  }}
                 >
-                  <TimerIcon className="status-icon" />
-                  {isPaused ? t('paused') : formatRemainingMs(remainingMs)}
-                </span>
-              ) : null}
-              <span
-                className={`${isConnected ? 'pill connected' : 'pill idle'} poker-table-status`}
-              >
-                <SignalIcon className="status-icon" />
-                {isConnected ? t('live') : t('reconnecting')}
-              </span>
-            </div>
+                  <ChatIcon className="status-icon" />
+                  {isChatPanelOpen ? catalog.table.hideChat : t('chat')}
+                </button>
 
-            {turnAnnouncement ? (
-              <div
-                key={turnAnnouncement.token}
-                className={`poker-turn-banner ${turnAnnouncement.playerId === snapshot.selfPlayerId ? 'is-self' : ''}`}
-              >
-                <span className="poker-turn-banner-kicker">
-                  {catalog.table.turnHandoff}
-                </span>
-                <strong>
-                  {turnAnnouncement.playerId === snapshot.selfPlayerId
-                    ? catalog.table.yourMove
-                    : catalog.table.playerToAct(
-                        playersById.get(turnAnnouncement.playerId)?.name ??
-                          catalog.table.activePlayer,
-                      )}
-                </strong>
+                <button
+                  type="button"
+                  className="ghost-button poker-table-control-button"
+                  aria-expanded={isClaimsPanelOpen}
+                  aria-controls={isCompactLayout ? 'claims-drawer' : undefined}
+                  disabled={isShowingResult && isCompactLayout}
+                  onClick={() => {
+                    setIsOptionsPanelOpen(false);
+                    if (isCompactLayout) {
+                      onSetTablePanelOpen(false);
+                      setIsChatPanelOpen(false);
+                    }
+                    setIsClaimsPanelOpen((current) => !current);
+                  }}
+                >
+                  <ClaimListIcon className="status-icon" />
+                  {isClaimsPanelOpen
+                    ? catalog.table.hideClaims
+                    : catalog.table.claims}
+                </button>
+
+                <button
+                  type="button"
+                  className="ghost-button poker-table-control-button"
+                  aria-expanded={isOptionsPanelOpen}
+                  aria-controls="game-options-panel"
+                  disabled={isShowingResult}
+                  onClick={() => {
+                    onSetTablePanelOpen(false);
+                    setIsChatPanelOpen(false);
+                    if (isCompactLayout) {
+                      setIsClaimsPanelOpen(false);
+                    }
+                    setIsOptionsPanelOpen((current) => !current);
+                  }}
+                >
+                  <OptionsIcon className="status-icon" />
+                  {catalog.table.gameOptions}
+                </button>
+
+                {isHost && turnTimer && !winner ? (
+                  <button
+                    type="button"
+                    className="ghost-button poker-table-control-button"
+                    onClick={() => onSetPauseState(!isPaused)}
+                    disabled={
+                      !isConnected || pendingCommand !== null || isShowingResult
+                    }
+                  >
+                    {isPaused ? t('resume') : t('pause')}
+                  </button>
+                ) : null}
               </div>
-            ) : null}
 
-            {renderClaimPot()}
-            {renderDeckObject()}
-            {renderDealLayer()}
-            {renderWinnerPot()}
-            {renderOpponentAnchors()}
-            {renderSelfAnchor()}
-            {activeResolution && isResolutionStageOpen ? (
-              <RoundResolutionOverlay
-                result={activeResolution}
-                players={snapshot.players}
-                seatPositions={resolutionSeatPositions}
-                nowMs={nowMs}
-              />
-            ) : null}
-            {renderClaimComposerPopup()}
+              <div
+                className={`poker-table-controls poker-table-controls-right ${isResolutionStageOpen ? 'is-result-dimmed' : ''}`}
+              >
+                <span className="pill ready poker-table-status">
+                  <CardsIcon className="status-icon" />
+                  {catalog.table.roomCode(snapshot.roomCode)}
+                </span>
+                {isDealing ? (
+                  <span className="pill ready poker-table-status poker-table-dealing-status">
+                    <CardsIcon className="status-icon" />
+                    {catalog.table.dealingNow}
+                  </span>
+                ) : null}
+                {turnTimer && remainingMs !== null ? (
+                  <span
+                    className={`${isPaused ? 'pill idle' : 'pill connected'} poker-table-status poker-table-timer timer-pill-${timerUrgency}`}
+                  >
+                    <TimerIcon className="status-icon" />
+                    {isPaused ? t('paused') : formatRemainingMs(remainingMs)}
+                  </span>
+                ) : null}
+                <span
+                  className={`${isConnected ? 'pill connected' : 'pill idle'} poker-table-status`}
+                >
+                  <SignalIcon className="status-icon" />
+                  {isConnected ? t('live') : t('reconnecting')}
+                </span>
+              </div>
+
+              {turnAnnouncement ? (
+                <div
+                  key={turnAnnouncement.token}
+                  className={`poker-turn-banner ${turnAnnouncement.playerId === snapshot.selfPlayerId ? 'is-self' : ''}`}
+                >
+                  <span className="poker-turn-banner-kicker">
+                    {catalog.table.turnHandoff}
+                  </span>
+                  <strong>
+                    {turnAnnouncement.playerId === snapshot.selfPlayerId
+                      ? catalog.table.yourMove
+                      : catalog.table.playerToAct(
+                          playersById.get(turnAnnouncement.playerId)?.name ??
+                            catalog.table.activePlayer,
+                        )}
+                  </strong>
+                </div>
+              ) : null}
+
+              {renderClaimPot()}
+              {renderDeckObject()}
+              {renderDealLayer()}
+              {renderWinnerPot()}
+              {renderOptionsPopover()}
+              {renderOpponentAnchors()}
+              {renderSelfAnchor()}
+              {activeResolution && isResolutionStageOpen ? (
+                <RoundResolutionOverlay
+                  result={activeResolution}
+                  players={snapshot.players}
+                  seatPositions={resolutionSeatPositions}
+                  nowMs={nowMs}
+                />
+              ) : null}
+              {renderClaimComposerPopup()}
+            </div>
           </div>
+
+          {!isCompactLayout ? renderRoundClaimsRail() : null}
         </div>
 
         <div
@@ -1962,12 +2279,13 @@ export function TableView({
                     type="button"
                     className={`poker-footer-button poker-footer-button-primary ${isClaimComposerVisible ? 'is-open' : ''}`}
                     onClick={() => {
+                      setIsOptionsPanelOpen(false);
                       if (isClaimComposerVisible) {
-                        closeClaimComposer();
+                        closeClaimComposer('manual');
                         return;
                       }
 
-                      openClaimComposer();
+                      openClaimComposer('manual');
                     }}
                     disabled={!canOpenClaimComposer}
                   >
@@ -2015,13 +2333,20 @@ export function TableView({
 
       <button
         type="button"
-        className={`table-drawer-backdrop ${isTablePanelOpen || isChatPanelOpen ? 'is-open' : ''}`}
+        className={`table-drawer-backdrop ${
+          isTablePanelOpen || isChatPanelOpen || isClaimsDrawerOpen
+            ? 'is-open'
+            : ''
+        }`}
         onClick={() => {
           onSetTablePanelOpen(false);
           setIsChatPanelOpen(false);
+          setIsClaimsPanelOpen(false);
         }}
         aria-label={catalog.table.closeSidePanels}
-        tabIndex={isTablePanelOpen || isChatPanelOpen ? 0 : -1}
+        tabIndex={
+          isTablePanelOpen || isChatPanelOpen || isClaimsDrawerOpen ? 0 : -1
+        }
       />
 
       <aside
@@ -2068,6 +2393,29 @@ export function TableView({
         </div>
 
         <div className="chat-drawer-content">{renderChatRailContent(true)}</div>
+      </aside>
+
+      <aside
+        id="claims-drawer"
+        className={`panel claims-drawer ${isClaimsDrawerOpen ? 'is-open' : ''}`}
+        aria-hidden={!isClaimsDrawerOpen}
+      >
+        <div className="table-drawer-header">
+          <div>
+            <p className="eyebrow">{catalog.table.roundClaimsLabel}</p>
+            <h2>{catalog.table.roundClaimsTitle}</h2>
+          </div>
+
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => setIsClaimsPanelOpen(false)}
+          >
+            {t('close')}
+          </button>
+        </div>
+
+        {renderRoundClaimsContent(false)}
       </aside>
     </section>
   );

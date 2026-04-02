@@ -319,6 +319,37 @@ describe('TableView match fixtures', () => {
     expect(markup).not.toContain('poker-claim-pot-layer is-current');
   });
 
+  it('renders the round claim rail in chronological order plus personal options copy', () => {
+    const markup = renderTable(
+      buildSnapshot(4, {
+        match: {
+          currentTurnPlayerId: 'p1',
+          lastClaim: buildPairClaim(11),
+          claimHistory: [
+            {
+              sequenceNumber: 1,
+              playerId: 'p2',
+              claim: buildPairClaim(10),
+            },
+            {
+              sequenceNumber: 2,
+              playerId: 'p3',
+              claim: buildPairClaim(11),
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(markup).toContain('Claims this round');
+    expect(markup).toContain('Hide claims');
+    expect(markup).toContain('Options');
+    expect(markup).toContain('Personal options');
+    expect(markup).toContain('Open the claim builder automatically when it');
+    expect(markup).toContain('Current');
+    expect(markup.indexOf('#1')).toBeLessThan(markup.indexOf('#2'));
+  });
+
   it('renders suit-plus-rank flush labels on the live table', () => {
     const markup = renderTable(
       buildSnapshot(4, {
@@ -637,11 +668,9 @@ describe('TableView match fixtures', () => {
   it('keeps one primary claim-entry control in the live footer', () => {
     const markup = renderTable(buildSnapshot(4));
 
-    expect(
-      markup.match(/Open claim|Build claim|Edit claim|Hide claim/g)?.length ??
-        0,
-    ).toBe(1);
-    expect(markup.match(/>Check</g)?.length ?? 0).toBe(1);
+    expect(markup.match(/poker-footer-button-primary/g)?.length ?? 0).toBe(1);
+    expect(markup).toContain('Build claim');
+    expect(markup.match(/poker-footer-button-check/g)?.length ?? 0).toBe(1);
     expect(markup).not.toContain('table-selected-claim-pill');
     expect(markup).not.toContain('claim-tray-shell');
   });

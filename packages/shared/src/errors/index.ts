@@ -117,7 +117,7 @@ export function getDefaultAppErrorMessage(code: AppErrorCode): string {
     case 'next-starter-undetermined':
       return 'The next starter could not be determined after result hold.';
     case 'room-not-found':
-      return 'Room not found.';
+      return 'Room not found. The server may have restarted and cleared its in-memory rooms.';
     case 'player-not-found':
       return 'Player not found in this room.';
     case 'seat-not-found':

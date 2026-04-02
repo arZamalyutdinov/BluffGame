@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 
 import {
   type Card,
@@ -6,7 +6,6 @@ import {
   type ClaimCategory,
   type ClaimOrderPreset,
   type FlushRule,
-  type Suit,
   claimToKey,
   getAllClaims,
   getClaimCategoryOrder,
@@ -14,6 +13,19 @@ import {
   sortCardsDescending,
 } from '@bluff-game/shared';
 
+import {
+  type BuilderOption,
+  buildOptions,
+  buildSelectionsForClaim,
+  filterClaimsBySelections,
+  getBuilderSteps,
+  getSelectionLabel,
+  normalizeSelections,
+} from '../lib/claimBuilder.js';
+import {
+  type ClaimSearchDocument,
+  searchClaimDocuments,
+} from '../lib/claimSearch.js';
 import {
   claimToBuilderIllustrationCards,
   claimToIllustrationCards,
@@ -33,23 +45,7 @@ interface ClaimComposerProps {
   onSubmit: (claimKey: string) => void;
 }
 
-interface BuilderStepConfig {
-  id: string;
-  title: string;
-  helper: string;
-  getValue: (claim: Claim) => string;
-  getLabel: (claim: Claim) => string;
-}
-
-interface BuilderOption {
-  value: string;
-  label: string;
-  previewClaim: Claim;
-  count: number;
-}
-
 interface CategoryButtonProps {
-  category: ClaimCategory;
   disabled: boolean;
   previewClaim?: Claim | undefined;
   label: string;
@@ -68,321 +64,7 @@ interface BuilderOptionButtonProps {
   onClick: () => void;
 }
 
-interface BuilderStepInput {
-  helpers: Pick<
-    ReturnType<typeof useLocale>,
-    'formatClaimCompactLabel' | 'formatRankLabel' | 'formatSuitChoiceLabel'
-  >;
-  labels: {
-    highCard: string;
-    pairRank: string;
-    firstPair: string;
-    secondPair: string;
-    triplet: string;
-    straight: string;
-    flushSuit: string;
-    namedCard: string;
-    pair: string;
-    quadRank: string;
-    straightFlushSuit: string;
-  };
-  copy: {
-    highCard: string;
-    pair: string;
-    firstPair: string;
-    secondPair: string;
-    trips: string;
-    straight: string;
-    flushSuitFirst: string;
-    flushNamedCard: string;
-    flushSuitOnly: string;
-    fullHouseTrips: string;
-    fullHousePair: string;
-    quads: string;
-    straightFlushSuit: string;
-    straightFlushStraight: string;
-  };
-}
-
-function getBuilderSteps(
-  category: ClaimCategory,
-  flushRule: FlushRule,
-  input: BuilderStepInput,
-): BuilderStepConfig[] {
-  const { formatClaimCompactLabel, formatRankLabel, formatSuitChoiceLabel } =
-    input.helpers;
-  const { labels, copy } = input;
-
-  switch (category) {
-    case 'high-card':
-      return [
-        {
-          id: 'rank',
-          title: labels.highCard,
-          helper: copy.highCard,
-          getValue: (claim) => claimToKey(claim),
-          getLabel: (claim) => formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'pair':
-      return [
-        {
-          id: 'pairRank',
-          title: labels.pairRank,
-          helper: copy.pair,
-          getValue: (claim) => claimToKey(claim),
-          getLabel: (claim) => formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'two-pair':
-      return [
-        {
-          id: 'highPairRank',
-          title: labels.firstPair,
-          helper: copy.firstPair,
-          getValue: (claim) =>
-            claim.category === 'two-pair' ? String(claim.highPairRank) : '',
-          getLabel: (claim) =>
-            claim.category === 'two-pair'
-              ? formatRankLabel(claim.highPairRank)
-              : formatClaimCompactLabel(claim),
-        },
-        {
-          id: 'lowPairRank',
-          title: labels.secondPair,
-          helper: copy.secondPair,
-          getValue: (claim) =>
-            claim.category === 'two-pair' ? String(claim.lowPairRank) : '',
-          getLabel: (claim) =>
-            claim.category === 'two-pair'
-              ? formatRankLabel(claim.lowPairRank)
-              : formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'three-of-a-kind':
-      return [
-        {
-          id: 'tripRank',
-          title: labels.triplet,
-          helper: copy.trips,
-          getValue: (claim) => claimToKey(claim),
-          getLabel: (claim) => formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'straight':
-      return [
-        {
-          id: 'lowRank',
-          title: labels.straight,
-          helper: copy.straight,
-          getValue: (claim) => claimToKey(claim),
-          getLabel: (claim) => formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'flush':
-      return flushRule === 'suit-plus-rank'
-        ? [
-            {
-              id: 'suit',
-              title: labels.flushSuit,
-              helper: copy.flushSuitFirst,
-              getValue: (claim) =>
-                claim.category === 'flush' ? claim.suit : '',
-              getLabel: (claim) =>
-                claim.category === 'flush'
-                  ? formatSuitChoiceLabel(claim.suit)
-                  : formatClaimCompactLabel(claim),
-            },
-            {
-              id: 'rank',
-              title: labels.namedCard,
-              helper: copy.flushNamedCard,
-              getValue: (claim) =>
-                claim.category === 'flush' && claim.rank !== undefined
-                  ? String(claim.rank)
-                  : '',
-              getLabel: (claim) =>
-                claim.category === 'flush' && claim.rank !== undefined
-                  ? formatRankLabel(claim.rank)
-                  : formatClaimCompactLabel(claim),
-            },
-          ]
-        : [
-            {
-              id: 'suit',
-              title: labels.flushSuit,
-              helper: copy.flushSuitOnly,
-              getValue: (claim) => claimToKey(claim),
-              getLabel: (claim) => formatClaimCompactLabel(claim),
-            },
-          ];
-    case 'full-house':
-      return [
-        {
-          id: 'tripRank',
-          title: labels.triplet,
-          helper: copy.fullHouseTrips,
-          getValue: (claim) =>
-            claim.category === 'full-house' ? String(claim.tripRank) : '',
-          getLabel: (claim) =>
-            claim.category === 'full-house'
-              ? formatRankLabel(claim.tripRank)
-              : formatClaimCompactLabel(claim),
-        },
-        {
-          id: 'pairRank',
-          title: labels.pair,
-          helper: copy.fullHousePair,
-          getValue: (claim) =>
-            claim.category === 'full-house' ? String(claim.pairRank) : '',
-          getLabel: (claim) =>
-            claim.category === 'full-house'
-              ? formatRankLabel(claim.pairRank)
-              : formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'four-of-a-kind':
-      return [
-        {
-          id: 'quadRank',
-          title: labels.quadRank,
-          helper: copy.quads,
-          getValue: (claim) => claimToKey(claim),
-          getLabel: (claim) => formatClaimCompactLabel(claim),
-        },
-      ];
-    case 'straight-flush':
-      return [
-        {
-          id: 'suit',
-          title: labels.straightFlushSuit,
-          helper: copy.straightFlushSuit,
-          getValue: (claim) =>
-            claim.category === 'straight-flush' ? claim.suit : '',
-          getLabel: (claim) =>
-            claim.category === 'straight-flush'
-              ? formatSuitChoiceLabel(claim.suit)
-              : formatClaimCompactLabel(claim),
-        },
-        {
-          id: 'lowRank',
-          title: labels.straight,
-          helper: copy.straightFlushStraight,
-          getValue: (claim) =>
-            claim.category === 'straight-flush' ? String(claim.lowRank) : '',
-          getLabel: (claim) =>
-            claim.category === 'straight-flush'
-              ? formatClaimCompactLabel(claim)
-              : formatClaimCompactLabel(claim),
-        },
-      ];
-  }
-}
-
-function filterClaimsBySelections(
-  claims: Claim[],
-  steps: BuilderStepConfig[],
-  selections: string[],
-): Claim[] {
-  return claims.filter((claim) =>
-    selections.every(
-      (selectedValue, index) => steps[index]?.getValue(claim) === selectedValue,
-    ),
-  );
-}
-
-function normalizeSelections(
-  claims: Claim[],
-  steps: BuilderStepConfig[],
-  selections: string[],
-): string[] {
-  const nextSelections: string[] = [];
-
-  for (const [index, selectedValue] of selections.entries()) {
-    const claimsForStep = filterClaimsBySelections(
-      claims,
-      steps,
-      nextSelections,
-    );
-    const step = steps[index];
-
-    if (!step) {
-      break;
-    }
-
-    const validValues = new Set(
-      claimsForStep.map((claim) => step.getValue(claim)).filter(Boolean),
-    );
-
-    if (!validValues.has(selectedValue)) {
-      break;
-    }
-
-    nextSelections.push(selectedValue);
-  }
-
-  return nextSelections;
-}
-
-function buildOptions(
-  claims: Claim[],
-  step: BuilderStepConfig,
-): BuilderOption[] {
-  const optionMap = new Map<string, BuilderOption>();
-
-  for (const claim of claims) {
-    const value = step.getValue(claim);
-
-    if (!value) {
-      continue;
-    }
-
-    const existing = optionMap.get(value);
-
-    if (existing) {
-      existing.count += 1;
-      continue;
-    }
-
-    optionMap.set(value, {
-      value,
-      label: step.getLabel(claim),
-      previewClaim: claim,
-      count: 1,
-    });
-  }
-
-  return [...optionMap.values()];
-}
-
-function getSelectionLabel(
-  claims: Claim[],
-  steps: BuilderStepConfig[],
-  selections: string[],
-  stepIndex: number,
-): string {
-  const step = steps[stepIndex];
-
-  if (!step) {
-    return selections[stepIndex] ?? '';
-  }
-
-  const claimsForStep = filterClaimsBySelections(
-    claims,
-    steps,
-    selections.slice(0, stepIndex),
-  );
-  const matchingClaim = claimsForStep.find(
-    (claim) => step.getValue(claim) === selections[stepIndex],
-  );
-
-  return matchingClaim
-    ? step.getLabel(matchingClaim)
-    : (selections[stepIndex] ?? '');
-}
-
 function CategoryButton({
-  category,
   disabled,
   previewClaim,
   onClick,
@@ -441,6 +123,38 @@ function BuilderOptionButton({
   );
 }
 
+interface ClaimSearchResultButtonProps {
+  result: ClaimSearchDocument;
+  active: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}
+
+function ClaimSearchResultButton({
+  result,
+  active,
+  disabled,
+  onClick,
+}: ClaimSearchResultButtonProps) {
+  return (
+    <button
+      type="button"
+      className={`claim-choice-button claim-search-result-button ${
+        active ? 'is-active' : ''
+      }`}
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+    >
+      <ClaimCardStack cards={claimToIllustrationCards(result.claim)} compact />
+      <span className="claim-choice-copy">
+        <span className="claim-choice-label">{result.compactLabel}</span>
+        <span className="claim-choice-meta">{result.categoryLabel}</span>
+      </span>
+    </button>
+  );
+}
+
 export function ClaimComposer({
   claimOrderPreset,
   flushRule,
@@ -454,8 +168,10 @@ export function ClaimComposer({
   const {
     catalog,
     formatClaimCompactLabel,
+    formatClaimLabel,
     formatRankLabel,
     formatSuitChoiceLabel,
+    locale,
   } = useLocale();
   const categoryOrder = useMemo(
     () => getClaimCategoryOrder(claimOrderPreset),
@@ -494,6 +210,8 @@ export function ClaimComposer({
   const [selectedCategory, setSelectedCategory] =
     useState<ClaimCategory | null>(null);
   const [selectedStepValues, setSelectedStepValues] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   useEffect(() => {
     if (!firstAvailableCategory) {
@@ -517,40 +235,42 @@ export function ClaimComposer({
   const selectedCategoryClaims = selectedCategory
     ? (availableClaimsByCategory.get(selectedCategory) ?? [])
     : [];
-  const builderSteps = useMemo(
-    () =>
-      selectedCategory
-        ? getBuilderSteps(selectedCategory, flushRule, {
-            helpers: {
-              formatClaimCompactLabel,
-              formatRankLabel,
-              formatSuitChoiceLabel,
-            },
-            labels: {
-              highCard: catalog.claims.stepTitles.rank,
-              pairRank: catalog.claims.stepTitles.pairRank,
-              firstPair: catalog.claims.stepTitles.highPairRank,
-              secondPair: catalog.claims.stepTitles.lowPairRank,
-              triplet: catalog.claims.stepTitles.tripRank,
-              straight: catalog.claims.stepTitles.lowRank,
-              flushSuit: catalog.claims.stepTitles.suit,
-              namedCard: catalog.claims.stepTitles.flushRank,
-              pair: catalog.claims.stepTitles.fullHousePairRank,
-              quadRank: catalog.claims.stepTitles.quadRank,
-              straightFlushSuit: catalog.claims.stepTitles.straightFlushSuit,
-            },
-            copy: catalog.claims.helpers,
-          })
-        : [],
+  const builderStepInput = useMemo(
+    () => ({
+      helpers: {
+        formatClaimCompactLabel,
+        formatRankLabel,
+        formatSuitChoiceLabel,
+      },
+      labels: {
+        highCard: catalog.claims.stepTitles.rank,
+        pairRank: catalog.claims.stepTitles.pairRank,
+        firstPair: catalog.claims.stepTitles.highPairRank,
+        secondPair: catalog.claims.stepTitles.lowPairRank,
+        triplet: catalog.claims.stepTitles.tripRank,
+        straight: catalog.claims.stepTitles.lowRank,
+        flushSuit: catalog.claims.stepTitles.suit,
+        namedCard: catalog.claims.stepTitles.flushRank,
+        pair: catalog.claims.stepTitles.fullHousePairRank,
+        quadRank: catalog.claims.stepTitles.quadRank,
+        straightFlushSuit: catalog.claims.stepTitles.straightFlushSuit,
+      },
+      copy: catalog.claims.helpers,
+    }),
     [
       catalog.claims.helpers,
       catalog.claims.stepTitles,
-      flushRule,
       formatClaimCompactLabel,
       formatRankLabel,
       formatSuitChoiceLabel,
-      selectedCategory,
     ],
+  );
+  const builderSteps = useMemo(
+    () =>
+      selectedCategory
+        ? getBuilderSteps(selectedCategory, flushRule, builderStepInput)
+        : [],
+    [builderStepInput, flushRule, selectedCategory],
   );
 
   useEffect(() => {
@@ -586,6 +306,27 @@ export function ClaimComposer({
       : undefined;
   const isBuilderOpen = Boolean(selectedCategory && builderSteps.length > 0);
   const sortedHand = useMemo(() => sortCardsDescending(yourHand), [yourHand]);
+  const searchResults = useMemo(
+    () =>
+      searchClaimDocuments({
+        query: deferredSearchQuery,
+        claimOrderPreset,
+        flushRule,
+        locale,
+        catalog,
+        legalClaimKeys: availableClaims.map((claim) => claimToKey(claim)),
+      }),
+    [
+      availableClaims,
+      catalog,
+      claimOrderPreset,
+      deferredSearchQuery,
+      flushRule,
+      locale,
+    ],
+  );
+  const isSearchActive = searchQuery.trim().length > 0;
+  const selectedClaimKey = selectedClaim ? claimToKey(selectedClaim) : null;
 
   useEffect(() => {
     onSelectedClaimChange?.(selectedClaim);
@@ -627,6 +368,20 @@ export function ClaimComposer({
     });
   }
 
+  function handleSelectSearchResult(result: ClaimSearchDocument) {
+    const nextBuilderSteps = getBuilderSteps(
+      result.claim.category,
+      flushRule,
+      builderStepInput,
+    );
+
+    setSelectedCategory(result.claim.category);
+    setSelectedStepValues(
+      buildSelectionsForClaim(result.claim, nextBuilderSteps),
+    );
+    setSearchQuery('');
+  }
+
   return (
     <form
       className="composer-card claim-builder"
@@ -662,7 +417,70 @@ export function ClaimComposer({
         </section>
       </div>
 
-      {!isBuilderOpen ? (
+      <div className="claim-search-panel">
+        <div className="claim-search-header">
+          <label className="claim-panel-label" htmlFor="claim-builder-search">
+            {catalog.table.claimSearchLabel}
+          </label>
+
+          {searchQuery.trim() ? (
+            <button
+              type="button"
+              className="ghost-button claim-search-clear"
+              onClick={() => setSearchQuery('')}
+            >
+              {catalog.table.clearClaimSearch}
+            </button>
+          ) : null}
+        </div>
+
+        <input
+          id="claim-builder-search"
+          className="claim-search-input"
+          type="search"
+          value={searchQuery}
+          onChange={(event) => setSearchQuery(event.target.value)}
+          placeholder={catalog.table.claimSearchPlaceholder}
+          autoComplete="off"
+          spellCheck={false}
+        />
+
+        <p className="claim-helper-text claim-search-helper">
+          {isSearchActive
+            ? searchResults.length > 0
+              ? catalog.table.claimSearchResults(searchResults.length)
+              : catalog.table.claimSearchEmpty(searchQuery.trim())
+            : catalog.table.claimSearchHint}
+        </p>
+      </div>
+
+      {isSearchActive ? (
+        <div className="claim-builder-body">
+          {searchResults.length > 0 ? (
+            <div className="claim-choice-grid claim-search-results">
+              {searchResults.map((result) => (
+                <ClaimSearchResultButton
+                  key={result.claimKey}
+                  result={result}
+                  active={result.claimKey === selectedClaimKey}
+                  disabled={disabled}
+                  onClick={() => handleSelectSearchResult(result)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="claim-search-empty muted-panel">
+              <p className="claim-panel-label">
+                {catalog.table.claimSearchLabel}
+              </p>
+              <strong>{catalog.table.claimSearchNoMatches}</strong>
+              <p className="claim-helper-text">
+                {catalog.table.claimSearchEmpty(searchQuery.trim())}
+              </p>
+            </div>
+          )}
+        </div>
+      ) : !isBuilderOpen ? (
         <div className="claim-category-toolbar">
           {categoryOrder.map((category) => {
             const categoryClaims =
@@ -672,7 +490,6 @@ export function ClaimComposer({
             return (
               <CategoryButton
                 key={category}
-                category={category}
                 disabled={disabled || categoryClaims.length === 0}
                 previewClaim={previewClaim}
                 label={catalog.claims.categoryLabels[category]}
@@ -708,6 +525,13 @@ export function ClaimComposer({
                     ? catalog.claims.categoryLabels[selectedCategory]
                     : catalog.table.claimFallback}
                 </h3>
+                {selectedClaim ? (
+                  <p className="claim-helper-text">
+                    {catalog.table.selectedClaim(
+                      formatClaimLabel(selectedClaim),
+                    )}
+                  </p>
+                ) : null}
                 {builderSteps.length > 1 ? (
                   <div
                     className="claim-builder-trail"

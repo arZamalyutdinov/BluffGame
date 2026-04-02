@@ -216,7 +216,8 @@ const enErrors: Record<AppErrorCode, string> = {
   'winner-undetermined': 'A winning player could not be determined.',
   'next-starter-undetermined':
     'The next starter could not be determined after result hold.',
-  'room-not-found': 'Room not found.',
+  'room-not-found':
+    'Room not found. The server may have restarted and cleared its in-memory rooms.',
   'player-not-found': 'Player not found in this room.',
   'seat-not-found': 'Seat not found in this room.',
   'no-active-match': 'There is no active match in this room.',
@@ -409,6 +410,11 @@ export const enCatalog = {
     actingLead: (name: string) => `${name} is acting.`,
     hidePlayers: 'Hide players',
     hideChat: 'Hide chat',
+    claims: 'Claims',
+    hideClaims: 'Hide claims',
+    gameOptions: 'Options',
+    gameOptionsLabel: 'Game options',
+    gameOptionsTitle: 'Personal options',
     roomCode: (code: string) => `Room ${code}`,
     turnHandoff: 'Turn handoff',
     yourMove: 'Your move',
@@ -443,6 +449,13 @@ export const enCatalog = {
     kick: 'Kick',
     stopPlaying: 'Stop playing',
     noClaimsYet: 'No claims yet.',
+    roundClaimsLabel: 'Round claims',
+    roundClaimsTitle: 'Claims this round',
+    roundClaimsCount: (count: number) =>
+      `${count} ${count === 1 ? 'claim' : 'claims'}`,
+    roundClaimsEmpty:
+      'Every claim from the current round will appear here in spoken order.',
+    currentClaimBadge: 'Current',
     checked: 'Checked',
     checker: 'Checker',
     lost: 'Lost',
@@ -470,8 +483,22 @@ export const enCatalog = {
     chosenParts: 'Chosen parts',
     combinationType: 'Combination type',
     claimFallback: 'Claim',
+    claimSearchLabel: 'Quick search',
+    claimSearchPlaceholder: 'Search legal claims',
+    clearClaimSearch: 'Clear',
+    claimSearchHint:
+      'Search by rank, suit, category, or compact claim text to jump straight to a legal claim.',
+    claimSearchResults: (count: number) =>
+      `${count} ${count === 1 ? 'legal result' : 'legal results'} found`,
+    claimSearchNoMatches: 'No legal matches',
+    claimSearchEmpty: (query: string) =>
+      `No legal claim matched "${query}" right now.`,
     noStrongerClaimsRemain:
       'No stronger claims remain. The next player must check.',
+    autoOpenClaimBuilderOption:
+      "Open the claim builder automatically when it's your turn",
+    autoOpenClaimBuilderHint:
+      'This stays on for this browser across rooms and only opens once per turn.',
     dealtSoFar: 'dealt so far',
     inHand: 'in hand',
     selfDealtHandAria: 'Dealt cards so far',

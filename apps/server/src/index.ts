@@ -52,7 +52,9 @@ await app.register(fastifyCors, {
   credentials: true,
 });
 
-app.get('/health', async () => ({ ok: true }));
+app.get('/health', async (_request, reply) =>
+  reply.header('Cache-Control', 'no-store').send({ ok: true }),
+);
 
 app.post('/api/rooms', async (request, reply) => {
   try {
@@ -155,6 +157,14 @@ const io = new Server(app.server, {
   cors: {
     origin: true,
     credentials: true,
+  },
+  // Keep the transport alive through intermediary network gear and recover a
+  // short gap when Render or the browser briefly drops the underlying socket.
+  pingInterval: 25_000,
+  pingTimeout: 20_000,
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: true,
   },
 });
 

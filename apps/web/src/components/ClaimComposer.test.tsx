@@ -32,6 +32,11 @@ describe('ClaimComposer', () => {
     expect(markup).toContain('Your hand');
     expect(markup).toContain('Cards in round');
     expect(markup).toContain('Total live cards still in play.');
+    expect(markup).toContain('Quick search');
+    expect(markup).toContain('Search legal claims');
+    expect(markup).toContain(
+      'Search by rank, suit, category, or compact claim text to jump straight to a legal claim.',
+    );
     expect(markup).toContain('11');
     expect(markup).toContain('RJ');
     expect(markup).toContain('High card');
