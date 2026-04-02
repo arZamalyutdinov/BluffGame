@@ -34,13 +34,13 @@ import {
   getLocaleNativeName,
   useLocale,
 } from './lib/i18n/index.js';
+import { startRoomKeepAlive } from './lib/roomKeepAlive.js';
 import {
   getLastDisplayName,
   getRoomSession,
   removeRoomSession,
   saveRoomSession,
 } from './lib/session.js';
-import { startRoomKeepAlive } from './lib/roomKeepAlive.js';
 
 interface RoomConnectionState {
   snapshot: RoomSnapshot | null;
@@ -408,7 +408,7 @@ function RoomPage() {
       // Let the client reconnect aggressively after intermediary disconnects,
       // while still allowing polling fallback before upgrading to WebSocket.
       reconnection: true,
-      reconnectionAttempts: Infinity,
+      reconnectionAttempts: Number.POSITIVE_INFINITY,
       reconnectionDelay: 1_000,
       reconnectionDelayMax: 5_000,
       randomizationFactor: 0.5,

@@ -44,8 +44,8 @@
   --poker-round-claims-rail-gap: 0.9rem;
   --poker-round-claims-rail-reserve: calc(
     var(--poker-round-claims-rail-width) +
-      var(--poker-round-claims-rail-offset) +
-      var(--poker-round-claims-rail-gap)
+    var(--poker-round-claims-rail-offset) +
+    var(--poker-round-claims-rail-gap)
   );
   position: relative;
   min-height: clamp(30rem, calc(100dvh - 18rem), 39rem);

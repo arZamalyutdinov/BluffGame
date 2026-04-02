@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  buildRoomKeepAliveUrl,
-  startRoomKeepAlive,
-} from './roomKeepAlive.js';
+import { buildRoomKeepAliveUrl, startRoomKeepAlive } from './roomKeepAlive.js';
 
 describe('room keepalive helpers', () => {
   afterEach(() => {
