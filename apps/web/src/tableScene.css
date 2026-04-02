@@ -39,6 +39,14 @@
 }
 
 .poker-table-stage {
+  --poker-round-claims-rail-width: clamp(16rem, 23vw, 19rem);
+  --poker-round-claims-rail-offset: 1rem;
+  --poker-round-claims-rail-gap: 0.9rem;
+  --poker-round-claims-rail-reserve: calc(
+    var(--poker-round-claims-rail-width) +
+    var(--poker-round-claims-rail-offset) +
+    var(--poker-round-claims-rail-gap)
+  );
   position: relative;
   min-height: clamp(30rem, calc(100dvh - 18rem), 39rem);
   overflow: hidden;
@@ -54,14 +62,26 @@
   isolation: isolate;
 }
 
-.poker-table-stage::before,
-.poker-table-stage::after {
+.poker-table-play-area {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  isolation: isolate;
+  transition: inset-inline-end 180ms ease;
+}
+
+.poker-table-play-area.has-desktop-claims-rail {
+  right: var(--poker-round-claims-rail-reserve);
+}
+
+.poker-table-play-area::before,
+.poker-table-play-area::after {
   content: "";
   position: absolute;
   border-radius: 999px;
 }
 
-.poker-table-stage::before {
+.poker-table-play-area::before {
   inset: 10% 3.8% 12.6%;
   background: radial-gradient(
       circle at 50% 18%,
@@ -72,7 +92,7 @@
     rgba(15, 19, 60, 0.34), 0 24px 44px rgba(8, 14, 41, 0.2);
 }
 
-.poker-table-stage::after {
+.poker-table-play-area::after {
   inset: 12.35% 5.05% 14.25%;
   border: 0.55rem solid rgba(246, 250, 255, 0.96);
   background: radial-gradient(
@@ -90,7 +110,7 @@
     rgba(31, 70, 44, 0.08);
 }
 
-.poker-table-stage.is-warning-clock::before {
+.poker-table-stage.is-warning-clock .poker-table-play-area::before {
   box-shadow:
     inset 0 12px 20px rgba(255, 255, 255, 0.18),
     inset 0 -18px 34px rgba(15, 19, 60, 0.34),
@@ -98,7 +118,7 @@
     0 24px 44px rgba(8, 14, 41, 0.2);
 }
 
-.poker-table-stage.is-critical-clock::before {
+.poker-table-stage.is-critical-clock .poker-table-play-area::before {
   box-shadow:
     inset 0 12px 20px rgba(255, 255, 255, 0.18),
     inset 0 -18px 34px rgba(15, 19, 60, 0.34),
@@ -114,6 +134,7 @@
 
 .poker-table-scenery {
   pointer-events: none;
+  z-index: 1;
 }
 
 .poker-table-ambient,
@@ -227,6 +248,229 @@
 .poker-table-timer.timer-pill-critical {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px
     rgba(255, 124, 108, 0.22);
+}
+
+.poker-round-claims-rail {
+  position: absolute;
+  top: 5.2rem;
+  right: var(--poker-round-claims-rail-offset);
+  bottom: 8.4rem;
+  width: min(var(--poker-round-claims-rail-width), calc(100% - 2rem));
+  z-index: 8;
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.poker-round-claims-rail.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(1rem);
+}
+
+.poker-round-claims-rail.is-open {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.poker-round-claims-rail.is-result-dimmed {
+  opacity: 0.36;
+  filter: saturate(0.7);
+}
+
+.poker-round-claims-panel,
+.poker-options-popover {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(9, 15, 39, 0.76);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 22px 44px
+    rgba(3, 7, 22, 0.28);
+  backdrop-filter: blur(20px);
+}
+
+.poker-round-claims-panel {
+  display: grid;
+  gap: 0.85rem;
+  height: 100%;
+  padding: 0.8rem;
+  border-radius: 1.5rem;
+}
+
+.poker-round-claims-header,
+.poker-round-claims-player,
+.poker-round-claims-actions {
+  display: flex;
+  align-items: center;
+}
+
+.poker-round-claims-header {
+  justify-content: space-between;
+  gap: 0.85rem;
+  align-items: start;
+}
+
+.poker-round-claims-title-block {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.poker-round-claims-title-block h2,
+.poker-options-header h2 {
+  margin: 0;
+  font-family: "Plus Jakarta Sans", sans-serif;
+  font-size: 1.02rem;
+  color: #f4f8ff;
+}
+
+.poker-round-claims-actions {
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.poker-round-claims-hide {
+  min-height: 2.2rem;
+  padding-inline: 0.8rem;
+}
+
+.poker-round-claims-list {
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  overflow: auto;
+  padding-right: 0.1rem;
+}
+
+.poker-round-claims-entry {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0.72rem 0.78rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1.15rem;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.poker-round-claims-entry.is-current {
+  border-color: rgba(76, 244, 197, 0.28);
+  box-shadow: inset 0 0 0 1px rgba(76, 244, 197, 0.12);
+}
+
+.poker-round-claims-sequence {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.78rem;
+  color: rgba(198, 207, 238, 0.72);
+}
+
+.poker-round-claims-preview .claim-card-stack {
+  min-height: 2.7rem;
+}
+
+.poker-round-claims-copy,
+.poker-options-header,
+.poker-option-toggle-copy {
+  display: grid;
+}
+
+.poker-round-claims-copy,
+.poker-option-toggle-copy {
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.poker-round-claims-player {
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.poker-round-claims-player strong,
+.poker-round-claims-claim {
+  color: #f4f8ff;
+}
+
+.poker-round-claims-current {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.4rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(76, 244, 197, 0.16);
+  color: #d9fff4;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.poker-round-claims-claim {
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+.poker-round-claims-empty {
+  padding: 0.95rem;
+}
+
+.poker-options-popover {
+  position: absolute;
+  top: 4.95rem;
+  left: 1rem;
+  width: min(24rem, calc(100% - 2rem));
+  z-index: 11;
+  padding: 0.8rem;
+  border-radius: 1.4rem;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-0.45rem);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.poker-options-popover.is-open {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.poker-options-header {
+  gap: 0.2rem;
+  margin-bottom: 0.7rem;
+}
+
+.poker-option-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+  padding: 0.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  color: #f4f8ff;
+}
+
+.poker-option-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.1rem;
+  accent-color: #4cf4c5;
+}
+
+.poker-option-toggle-copy strong {
+  font-size: 0.92rem;
+}
+
+.poker-option-toggle-copy span {
+  color: rgba(210, 222, 236, 0.82);
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.claims-drawer .poker-round-claims-panel {
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .poker-turn-banner {
@@ -902,6 +1146,26 @@
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
 }
 
+.poker-claim-popup-shell .claim-search-panel {
+  border-color: rgba(138, 159, 255, 0.18);
+  background: linear-gradient(
+      180deg,
+      rgba(18, 29, 76, 0.96),
+      rgba(10, 18, 54, 0.96)
+    ), rgba(10, 18, 54, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.poker-claim-popup-shell .claim-search-input {
+  border-color: rgba(138, 159, 255, 0.18);
+  background: rgba(8, 14, 40, 0.72);
+}
+
+.poker-claim-popup-shell .claim-search-empty {
+  border-color: rgba(138, 159, 255, 0.18);
+  background: rgba(27, 39, 95, 0.86);
+}
+
 .poker-claim-popup-shell .claim-category-toolbar,
 .poker-claim-popup-shell .claim-choice-grid {
   align-content: start;
@@ -1515,11 +1779,11 @@
     min-height: 33rem;
   }
 
-  .poker-table-stage::before {
+  .poker-table-play-area::before {
     inset: 10.5% 3.5% 14.5%;
   }
 
-  .poker-table-stage::after {
+  .poker-table-play-area::after {
     inset: 12.6% 5.1% 16%;
   }
 
@@ -1544,11 +1808,11 @@
     border-radius: 1.8rem;
   }
 
-  .poker-table-stage::before {
+  .poker-table-play-area::before {
     inset: 13% 2.8% 20%;
   }
 
-  .poker-table-stage::after {
+  .poker-table-play-area::after {
     inset: 15.1% 4.4% 22%;
     border-width: 0.42rem;
     box-shadow: inset 0 0 0 0.7rem rgba(116, 138, 236, 0.96);
@@ -1772,7 +2036,7 @@
     rgba(3, 7, 22, 0.45);
 }
 
-.poker-table-stage::before {
+.poker-table-play-area::before {
   inset: 8.8% 3.8% 12%;
   background: radial-gradient(
       circle at 28% 18%,
@@ -1789,7 +2053,7 @@
     18px rgba(255, 255, 255, 0.14);
 }
 
-.poker-table-stage::after {
+.poker-table-play-area::after {
   inset: 10.9% 5.1% 14.3%;
   border-width: 0.48rem;
   border-color: rgba(237, 247, 255, 0.58);
@@ -1807,13 +2071,13 @@
     0 28px 60px rgba(3, 8, 22, 0.32);
 }
 
-.poker-table-stage.is-warning-clock::before {
+.poker-table-stage.is-warning-clock .poker-table-play-area::before {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 42px
     rgba(255, 193, 88, 0.2), 0 0 74px rgba(188, 98, 255, 0.16), inset 0 10px
     18px rgba(255, 255, 255, 0.14);
 }
 
-.poker-table-stage.is-critical-clock::before {
+.poker-table-stage.is-critical-clock .poker-table-play-area::before {
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 42px
     rgba(255, 114, 102, 0.22), 0 0 74px rgba(188, 98, 255, 0.18), inset 0 10px
     18px rgba(255, 255, 255, 0.14);
@@ -2126,11 +2390,11 @@
     min-height: 29rem;
   }
 
-  .poker-table-stage::before {
+  .poker-table-play-area::before {
     inset: 12.5% 2.8% 19.6%;
   }
 
-  .poker-table-stage::after {
+  .poker-table-play-area::after {
     inset: 14.6% 4.2% 21.7%;
     border-width: 0.38rem;
   }
@@ -2164,6 +2428,16 @@
   .poker-footer-dock {
     width: 100%;
     border-radius: 1.8rem;
+  }
+
+  .poker-round-claims-rail {
+    display: none;
+  }
+
+  .poker-options-popover {
+    top: 4.4rem;
+    left: 0.75rem;
+    width: calc(100% - 1.5rem);
   }
 }
 

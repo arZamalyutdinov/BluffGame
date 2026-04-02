@@ -207,6 +207,11 @@ export const ruCatalog = {
     actingLead: (name: string) => `Ходит ${name}.`,
     hidePlayers: 'Скрыть игроков',
     hideChat: 'Скрыть чат',
+    claims: 'Заявки',
+    hideClaims: 'Скрыть заявки',
+    gameOptions: 'Опции',
+    gameOptionsLabel: 'Игровые опции',
+    gameOptionsTitle: 'Личные опции',
     roomCode: (code: string) => `Комната ${code}`,
     turnHandoff: 'Передача хода',
     yourMove: 'Ваш ход',
@@ -242,6 +247,13 @@ export const ruCatalog = {
     kick: 'В наблюдатели',
     stopPlaying: 'Перестать играть',
     noClaimsYet: 'Заявок пока не было.',
+    roundClaimsLabel: 'Заявки раунда',
+    roundClaimsTitle: 'Заявки этого раунда',
+    roundClaimsCount: (count: number) =>
+      `${count} ${count === 1 ? 'заявка' : count < 5 ? 'заявки' : 'заявок'}`,
+    roundClaimsEmpty:
+      'Здесь по порядку будут появляться все заявки текущего раунда.',
+    currentClaimBadge: 'Текущая',
     checked: 'Проверен',
     checker: 'Проверил',
     lost: 'Проиграл',
@@ -271,8 +283,22 @@ export const ruCatalog = {
     chosenParts: 'Выбранные части',
     combinationType: 'Тип комбинации',
     claimFallback: 'Заявка',
+    claimSearchLabel: 'Быстрый поиск',
+    claimSearchPlaceholder: 'Поиск легальных заявок',
+    clearClaimSearch: 'Очистить',
+    claimSearchHint:
+      'Ищите по рангу, масти, типу комбинации или короткой подписи, чтобы сразу перейти к легальной заявке.',
+    claimSearchResults: (count: number) =>
+      `${count} ${count === 1 ? 'легальный результат' : count < 5 ? 'легальных результата' : 'легальных результатов'} найдено`,
+    claimSearchNoMatches: 'Совпадений нет',
+    claimSearchEmpty: (query: string) =>
+      `Сейчас нет легальной заявки по запросу «${query}».`,
     noStrongerClaimsRemain:
       'Более сильных заявок не осталось. Следующий игрок обязан проверить.',
+    autoOpenClaimBuilderOption:
+      'Автоматически открывать конструктор заявки, когда ход переходит к вам',
+    autoOpenClaimBuilderHint:
+      'Опция сохраняется в этом браузере для всех комнат и срабатывает только один раз за ход.',
     dealtSoFar: 'уже роздано',
     inHand: 'в руке',
     selfDealtHandAria: 'Уже роздано',
@@ -501,7 +527,8 @@ export const ruCatalog = {
     'winner-undetermined': 'Не удалось определить победителя.',
     'next-starter-undetermined':
       'После показа результата не удалось определить следующего стартующего.',
-    'room-not-found': 'Комната не найдена.',
+    'room-not-found':
+      'Комната не найдена. Сервер мог перезапуститься и очистить комнаты, которые хранились только в памяти.',
     'player-not-found': 'Игрок не найден в этой комнате.',
     'seat-not-found': 'Место за столом не найдено в этой комнате.',
     'no-active-match': 'В этой комнате нет активного матча.',

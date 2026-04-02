@@ -34,6 +34,7 @@ import {
   getLocaleNativeName,
   useLocale,
 } from './lib/i18n/index.js';
+import { startRoomKeepAlive } from './lib/roomKeepAlive.js';
 import {
   getLastDisplayName,
   getRoomSession,
@@ -389,6 +390,14 @@ function RoomPage() {
       return;
     }
 
+    return startRoomKeepAlive(session.roomCode);
+  }, [session]);
+
+  useEffect(() => {
+    if (!session) {
+      return;
+    }
+
     const socket: Socket = io({
       autoConnect: true,
       auth: {
@@ -396,7 +405,14 @@ function RoomPage() {
         playerId: session.playerId,
         sessionToken: session.sessionToken,
       },
-      transports: ['websocket'],
+      // Let the client reconnect aggressively after intermediary disconnects,
+      // while still allowing polling fallback before upgrading to WebSocket.
+      reconnection: true,
+      reconnectionAttempts: Number.POSITIVE_INFINITY,
+      reconnectionDelay: 1_000,
+      reconnectionDelayMax: 5_000,
+      randomizationFactor: 0.5,
+      timeout: 20_000,
     });
 
     socketRef.current = socket;

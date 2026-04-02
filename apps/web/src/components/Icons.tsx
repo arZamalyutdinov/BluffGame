@@ -59,6 +59,19 @@ export function CardsIcon(props: IconProps) {
   );
 }
 
+export function ClaimListIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M7 7.25h10" />
+      <path d="M7 12h10" />
+      <path d="M7 16.75h10" />
+      <circle cx="4.5" cy="7.25" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="12" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="4.5" cy="16.75" r="0.9" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
 export function CrownIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -86,6 +99,19 @@ export function EmojiIcon(props: IconProps) {
       <path d="M8.7 10.1h.01" />
       <path d="M15.3 10.1h.01" />
       <path d="M8.5 14.2c.95 1.2 2.12 1.8 3.5 1.8s2.55-.6 3.5-1.8" />
+    </IconBase>
+  );
+}
+
+export function OptionsIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M5 7.5h6" />
+      <path d="M13 7.5h6" />
+      <path d="M5 16.5h3" />
+      <path d="M10 16.5h9" />
+      <circle cx="12" cy="7.5" r="1.75" />
+      <circle cx="9" cy="16.5" r="1.75" />
     </IconBase>
   );
 }

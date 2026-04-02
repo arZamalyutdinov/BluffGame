@@ -198,6 +198,20 @@ function formatClaimWithCatalog(
   }
 }
 
+export function formatClaimLabelWithCatalog(
+  claim: Claim,
+  catalog: LocaleCatalog,
+): string {
+  return formatClaimWithCatalog(claim, catalog, 'full');
+}
+
+export function formatClaimCompactLabelWithCatalog(
+  claim: Claim,
+  catalog: LocaleCatalog,
+): string {
+  return formatClaimWithCatalog(claim, catalog, 'compact');
+}
+
 function createLocaleContextValue(
   locale: LocaleCode,
   setLocaleState: (locale: LocaleCode) => void,
@@ -214,9 +228,9 @@ function createLocaleContextValue(
     },
     formatRankLabel: (rank) => catalog.cards.rankLabels[rank],
     formatSuitChoiceLabel: (suit) => catalog.cards.suitChoiceLabels[suit],
-    formatClaimLabel: (claim) => formatClaimWithCatalog(claim, catalog, 'full'),
+    formatClaimLabel: (claim) => formatClaimLabelWithCatalog(claim, catalog),
     formatClaimCompactLabel: (claim) =>
-      formatClaimWithCatalog(claim, catalog, 'compact'),
+      formatClaimCompactLabelWithCatalog(claim, catalog),
     formatError: (error) => {
       if (!error) {
         return null;
