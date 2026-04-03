@@ -57,6 +57,7 @@ describe('i18n helpers', () => {
   it('detects supported browser locales and falls back to English', () => {
     expect(detectBrowserLocale('en-x-orkish')).toBe('en-x-orkish');
     expect(detectBrowserLocale('ru-RU')).toBe('ru');
+    expect(detectBrowserLocale('ru-x-camp')).toBe('ru-x-camp');
     expect(detectBrowserLocale('ru-x-fenya')).toBe('ru-x-fenya');
     expect(detectBrowserLocale('en-US')).toBe('en');
     expect(detectBrowserLocale('fr-FR')).toBe('en');
@@ -89,6 +90,8 @@ describe('i18n helpers', () => {
     expect(getStoredLocale()).toBe('ru');
     saveStoredLocale('en-x-orkish');
     expect(getStoredLocale()).toBe('en-x-orkish');
+    saveStoredLocale('ru-x-camp');
+    expect(getStoredLocale()).toBe('ru-x-camp');
     saveStoredLocale('ru-x-fenya');
     expect(getStoredLocale()).toBe('ru-x-fenya');
   });
@@ -106,6 +109,11 @@ describe('i18n helpers', () => {
     );
     const prisonMarkup = renderToStaticMarkup(
       <LocaleProvider initialLocale="ru-x-fenya">
+        <LocaleProbe />
+      </LocaleProvider>,
+    );
+    const campMarkup = renderToStaticMarkup(
+      <LocaleProvider initialLocale="ru-x-camp">
         <LocaleProbe />
       </LocaleProvider>,
     );
@@ -130,12 +138,16 @@ describe('i18n helpers', () => {
     expect(orkishMarkup).toContain('Bluff got krumped');
     expect(orkishMarkup).toContain('>Q<');
     expect(orkishMarkup).toContain('RJ/JOKER');
+    expect(campMarkup).toContain('glamour flush червы с А');
+    expect(campMarkup).toContain('pair Д, darling');
+    expect(campMarkup).toContain('Tea spilled');
     expect(prisonMarkup).toContain('флеш червы с А');
     expect(prisonMarkup).toContain('пара Д');
     expect(prisonMarkup).toContain('Вафлер вскрылся');
     expect(russianMarkup).not.toContain('PM');
     expect(englishMarkup).toContain('PM');
     expect(orkishMarkup).toContain('PM');
+    expect(campMarkup).not.toContain('PM');
     expect(prisonMarkup).not.toContain('PM');
   });
 });
