@@ -312,6 +312,126 @@ function buildDealFlightStyle(
   } as CSSProperties;
 }
 
+export function shouldPlaySelfTurnRing({
+  previousTurnPlayerId,
+  currentTurnPlayerId,
+  selfPlayerId,
+  resumedFromBlockedPhase,
+  isDealing,
+  isShowingResult,
+  hasWinner,
+}: {
+  previousTurnPlayerId: string | null;
+  currentTurnPlayerId: string;
+  selfPlayerId: string;
+  resumedFromBlockedPhase: boolean;
+  isDealing: boolean;
+  isShowingResult: boolean;
+  hasWinner: boolean;
+}): boolean {
+  return (
+    !hasWinner &&
+    !isShowingResult &&
+    !isDealing &&
+    currentTurnPlayerId === selfPlayerId &&
+    (resumedFromBlockedPhase ||
+      (previousTurnPlayerId !== null &&
+        previousTurnPlayerId !== currentTurnPlayerId))
+  );
+}
+
+function getAudioContextConstructor():
+  | typeof AudioContext
+  | undefined {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  const audioWindow = window as Window &
+    typeof globalThis & {
+      webkitAudioContext?: typeof AudioContext;
+    };
+
+  return audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+}
+
+function playTurnRing(audioContext: AudioContext) {
+  const startAt = audioContext.currentTime + 0.01;
+  const outputGain = audioContext.createGain();
+  outputGain.gain.setValueAtTime(0.92, startAt);
+  outputGain.connect(audioContext.destination);
+
+  const cleanupNodes: AudioNode[] = [outputGain];
+  const partials: Array<{
+    frequency: number;
+    gain: number;
+    decaySeconds: number;
+    type: OscillatorType;
+    detuneCents: number;
+  }> = [
+    {
+      frequency: 1046.5,
+      gain: 0.18,
+      decaySeconds: 1.15,
+      type: 'triangle',
+      detuneCents: -4,
+    },
+    {
+      frequency: 1567.98,
+      gain: 0.12,
+      decaySeconds: 0.88,
+      type: 'sine',
+      detuneCents: 6,
+    },
+    {
+      frequency: 2093,
+      gain: 0.06,
+      decaySeconds: 0.58,
+      type: 'sine',
+      detuneCents: 0,
+    },
+  ];
+  const strikeOffsetsSeconds = [0, 0.13];
+
+  strikeOffsetsSeconds.forEach((strikeOffsetSeconds, strikeIndex) => {
+    partials.forEach(
+      ({ frequency, gain, decaySeconds, type, detuneCents }) => {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        const strikeAt = startAt + strikeOffsetSeconds;
+        const strikeGain = strikeIndex === 0 ? gain : gain * 0.58;
+
+        oscillator.type = type;
+        oscillator.frequency.setValueAtTime(frequency, strikeAt);
+        oscillator.detune.setValueAtTime(detuneCents, strikeAt);
+
+        gainNode.gain.setValueAtTime(0.0001, strikeAt);
+        gainNode.gain.linearRampToValueAtTime(
+          strikeGain,
+          strikeAt + 0.012,
+        );
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.0001,
+          strikeAt + decaySeconds,
+        );
+
+        oscillator.connect(gainNode);
+        gainNode.connect(outputGain);
+        oscillator.start(strikeAt);
+        oscillator.stop(strikeAt + decaySeconds + 0.06);
+
+        cleanupNodes.push(oscillator, gainNode);
+      },
+    );
+  });
+
+  window.setTimeout(() => {
+    cleanupNodes.forEach((node) => {
+      node.disconnect();
+    });
+  }, 1_600);
+}
+
 export function TableView({
   snapshot,
   serverClockOffsetMs,
@@ -371,9 +491,11 @@ export function TableView({
     outgoingEntry: null,
   });
   const previousTurnPlayerIdRef = useRef<string | null>(null);
+  const previousTurnCueBlockedRef = useRef<boolean | null>(null);
   const previousClaimSequenceRef = useRef<number | null>(null);
   const previousRenderedClaimRef = useRef<ClaimHistoryEntry | null>(null);
   const autoOpenedClaimComposerTurnTokenRef = useRef<string | null>(null);
+  const turnRingAudioContextRef = useRef<AudioContext | null>(null);
   const claimComposerOpenSourceRef = useRef<'manual' | 'automatic' | null>(
     null,
   );
@@ -383,6 +505,19 @@ export function TableView({
   const isResultPhase =
     match?.phase === 'showing-result' &&
     Boolean(match.showdown || match.timeout);
+
+  useEffect(() => {
+    return () => {
+      const audioContext = turnRingAudioContextRef.current;
+
+      if (!audioContext) {
+        return;
+      }
+
+      turnRingAudioContextRef.current = null;
+      void audioContext.close().catch(() => {});
+    };
+  }, []);
 
   useEffect(() => {
     setNowMs(estimateServerNowMs(serverClockOffsetMs));
@@ -841,22 +976,68 @@ export function TableView({
 
   useEffect(() => {
     if (winner || isShowingResult || isDealing) {
+      previousTurnCueBlockedRef.current = true;
       previousTurnPlayerIdRef.current = currentTurnPlayerId;
       setTurnAnnouncement(null);
       return;
     }
 
     const previousTurnPlayerId = previousTurnPlayerIdRef.current;
+    const resumedFromBlockedPhase = previousTurnCueBlockedRef.current === true;
 
     if (previousTurnPlayerId && previousTurnPlayerId !== currentTurnPlayerId) {
       setTurnAnnouncement({
         playerId: currentTurnPlayerId,
         token: Date.now(),
       });
+
+      if (
+        shouldPlaySelfTurnRing({
+          previousTurnPlayerId,
+          currentTurnPlayerId,
+          selfPlayerId: snapshot.selfPlayerId,
+          resumedFromBlockedPhase,
+          isDealing,
+          isShowingResult,
+          hasWinner: Boolean(winner),
+        })
+      ) {
+        const AudioContextConstructor = getAudioContextConstructor();
+
+        if (AudioContextConstructor) {
+          const audioContext =
+            turnRingAudioContextRef.current &&
+            turnRingAudioContextRef.current.state !== 'closed'
+              ? turnRingAudioContextRef.current
+              : new AudioContextConstructor();
+
+          turnRingAudioContextRef.current = audioContext;
+
+          if (audioContext.state === 'suspended') {
+            void audioContext
+              .resume()
+              .then(() => {
+                if (audioContext.state === 'running') {
+                  playTurnRing(audioContext);
+                }
+              })
+              .catch(() => {});
+          } else if (audioContext.state === 'running') {
+            playTurnRing(audioContext);
+          }
+        }
+      }
     }
 
+    previousTurnCueBlockedRef.current = false;
     previousTurnPlayerIdRef.current = currentTurnPlayerId;
-  }, [currentTurnPlayerId, isDealing, isShowingResult, winner]);
+  }, [
+    currentTurnPlayerId,
+    isDealing,
+    isShowingResult,
+    snapshot.selfPlayerId,
+    winner,
+  ]);
 
   useEffect(() => {
     if (!turnAnnouncement) {
