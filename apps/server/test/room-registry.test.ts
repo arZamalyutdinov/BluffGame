@@ -5,6 +5,7 @@ import {
   MAX_ROOM_CHAT_MESSAGES,
   calculateDealingDurationMs,
   calculateResolutionDisplayDurationMs,
+  createCard,
   parseClaimKey,
 } from '@bluff-game/shared';
 
@@ -30,6 +31,7 @@ describe('RoomRegistry', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -81,6 +83,162 @@ describe('RoomRegistry', () => {
     ).rejects.toMatchObject({
       code: 'start-match-min-players',
     });
+  });
+
+  it('lets players join an active match with the rounded-down average hand size and picks the next starter correctly', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+    const randomSpy = vi.spyOn(Math, 'random');
+
+    randomSpy.mockReturnValueOnce(0.5);
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+
+    await registry.updateRoomSettings(host.roomCode, host.playerId, {
+      ...DEFAULT_ROOM_SETTINGS,
+      turnTimeLimitSeconds: 15,
+    });
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.setReady(host.roomCode, guest.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+    await advanceThroughDealing(registry, host.roomCode, host.playerId);
+
+    const room = registry.getRoom(host.roomCode);
+    const hostState = room?.players.find(
+      (player) => player.playerId === host.playerId,
+    );
+    const guestState = room?.players.find(
+      (player) => player.playerId === guest.playerId,
+    );
+
+    expect(room?.match).toBeTruthy();
+    expect(hostState).toBeTruthy();
+    expect(guestState).toBeTruthy();
+
+    if (!room?.match || !hostState || !guestState) {
+      throw new Error('Expected room, match, and active players to exist.');
+    }
+
+    hostState.handSize = 3;
+    guestState.handSize = 2;
+    room.match.round.starterSeatIndex = hostState.seatIndex;
+    room.match.round.currentTurnSeatIndex = hostState.seatIndex;
+    room.match.round.handsByPlayerId[host.playerId] = [
+      createCard(14, 'spades'),
+      createCard(11, 'hearts'),
+      createCard(4, 'clubs'),
+    ];
+    room.match.round.handsByPlayerId[guest.playerId] = [
+      createCard(13, 'diamonds'),
+      createCard(7, 'clubs'),
+    ];
+
+    randomSpy.mockReturnValueOnce(0.3);
+    const late = await registry.joinRoom(host.roomCode, 'Late');
+    const lateJoinSnapshot = registry.buildSnapshot(
+      host.roomCode,
+      late.playerId,
+    );
+    const lateJoinPlayer = lateJoinSnapshot.players.find(
+      (player) => player.playerId === late.playerId,
+    );
+
+    expect(lateJoinSnapshot.phase).toBe('in-match');
+    expect(lateJoinSnapshot.match?.phase).toBe('awaiting-opening-claim');
+    expect(lateJoinSnapshot.match?.yourHand).toEqual([]);
+    expect(lateJoinSnapshot.match?.currentTurnPlayerId).not.toBe(late.playerId);
+    expect(lateJoinPlayer).toMatchObject({
+      seatIndex: 2,
+      handSize: 2,
+      isEliminated: false,
+      cardCount: 0,
+    });
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const timeoutSnapshot = registry.buildSnapshot(
+      host.roomCode,
+      host.playerId,
+    );
+    const nextRoundCardCount = timeoutSnapshot.players
+      .filter((player) => !player.isEliminated)
+      .reduce((count, player) => count + player.handSize, 0);
+    const resultHoldMs = calculateResolutionDisplayDurationMs({
+      kind: 'timeout',
+      revealedHandCount:
+        timeoutSnapshot.match?.timeout?.revealedHands.length ?? 0,
+    });
+
+    expect(timeoutSnapshot.match?.phase).toBe('showing-result');
+    expect(timeoutSnapshot.match?.timeout?.revealedHands).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(resultHoldMs);
+
+    const nextRoundSnapshot = registry.buildSnapshot(
+      host.roomCode,
+      late.playerId,
+    );
+    const lateNextRoundPlayer = nextRoundSnapshot.players.find(
+      (player) => player.playerId === late.playerId,
+    );
+
+    expect(nextRoundSnapshot.match?.phase).toBe('dealing');
+    expect(nextRoundSnapshot.match?.starterPlayerId).toBe(late.playerId);
+    expect(nextRoundSnapshot.match?.currentTurnPlayerId).toBe(late.playerId);
+    expect(nextRoundSnapshot.match?.dealing?.durationMs).toBe(
+      calculateDealingDurationMs({
+        totalCardCount: nextRoundCardCount,
+      }),
+    );
+    expect(nextRoundSnapshot.match?.yourHand).toHaveLength(2);
+    expect(lateNextRoundPlayer).toMatchObject({
+      seatIndex: 2,
+      handSize: 2,
+      isEliminated: false,
+      cardCount: 2,
+    });
+  });
+
+  it('restarts a kicked current turn with the correct next player after a late join', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+    const randomSpy = vi.spyOn(Math, 'random');
+
+    randomSpy.mockReturnValueOnce(0.5);
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.setReady(host.roomCode, guest.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+    await advanceThroughDealing(registry, host.roomCode, host.playerId);
+
+    const room = registry.getRoom(host.roomCode);
+    const guestState = room?.players.find(
+      (player) => player.playerId === guest.playerId,
+    );
+
+    expect(room?.match).toBeTruthy();
+    expect(guestState).toBeTruthy();
+
+    if (!room?.match || !guestState) {
+      throw new Error('Expected room, match, and guest state to exist.');
+    }
+
+    room.match.round.currentTurnSeatIndex = guestState.seatIndex;
+
+    randomSpy.mockReturnValueOnce(0.7);
+    const late = await registry.joinRoom(host.roomCode, 'Late');
+
+    await registry.kickPlayerToSpectator(
+      host.roomCode,
+      host.playerId,
+      guest.playerId,
+    );
+
+    const snapshot = registry.buildSnapshot(host.roomCode, host.playerId);
+
+    expect(snapshot.match?.phase).toBe('dealing');
+    expect(snapshot.match?.starterPlayerId).toBe(late.playerId);
+    expect(snapshot.match?.currentTurnPlayerId).toBe(late.playerId);
   });
 
   it('holds timeout results on screen before starting the next round', async () => {
@@ -455,6 +613,7 @@ describe('RoomRegistry', () => {
   it('uses the draw-until-miss showdown rule with the round remainder deck', async () => {
     const registry = new RoomRegistry();
     const host = registry.createRoom('Host');
+    vi.spyOn(Math, 'random').mockReturnValueOnce(0);
     const guest = await registry.joinRoom(host.roomCode, 'Guest');
 
     await registry.updateRoomSettings(host.roomCode, host.playerId, {
@@ -623,6 +782,115 @@ describe('RoomRegistry', () => {
     expect(snapshot.match?.phase).toBe('match-complete');
     expect(snapshot.match?.winnerPlayerId).toBe(host.playerId);
     expect(guestPlayer?.isEliminated).toBe(true);
+  });
+
+  it('lets a player leave during an active match and picks the correct next player', async () => {
+    const registry = new RoomRegistry();
+    const randomSpy = vi.spyOn(Math, 'random');
+    const host = registry.createRoom('Host');
+
+    randomSpy.mockReturnValueOnce(0);
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+    randomSpy.mockReturnValueOnce(0);
+    const third = await registry.joinRoom(host.roomCode, 'Third');
+
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.setReady(host.roomCode, guest.playerId, true);
+    await registry.setReady(host.roomCode, third.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+    await advanceThroughDealing(registry, host.roomCode, host.playerId);
+
+    const room = registry.getRoom(host.roomCode);
+    const hostState = room?.players.find(
+      (player) => player.playerId === host.playerId,
+    );
+
+    expect(room?.match).toBeTruthy();
+    expect(hostState).toBeTruthy();
+
+    if (!room?.match || !hostState) {
+      throw new Error('Expected room, match, and host state to exist.');
+    }
+
+    room.match.round.currentTurnSeatIndex = hostState.seatIndex;
+    room.match.round.starterSeatIndex = hostState.seatIndex;
+
+    await registry.leaveRoom(host.roomCode, host.playerId);
+
+    const snapshot = registry.buildSnapshot(host.roomCode, guest.playerId);
+
+    expect(snapshot.phase).toBe('in-match');
+    expect(snapshot.hostPlayerId).toBe(guest.playerId);
+    expect(
+      snapshot.players.find((player) => player.playerId === host.playerId),
+    ).toBeUndefined();
+    expect(snapshot.match?.phase).toBe('dealing');
+    expect(snapshot.match?.roundNumber).toBe(1);
+    expect(snapshot.match?.starterPlayerId).toBe(guest.playerId);
+    expect(snapshot.match?.currentTurnPlayerId).toBe(guest.playerId);
+    expect(snapshot.match?.claimHistory).toEqual([]);
+  });
+
+  it('keeps result hold valid when the next starter leaves before the next round begins', async () => {
+    const registry = new RoomRegistry();
+    const randomSpy = vi.spyOn(Math, 'random');
+    const host = registry.createRoom('Host');
+
+    randomSpy.mockReturnValueOnce(0);
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+    randomSpy.mockReturnValueOnce(0);
+    const third = await registry.joinRoom(host.roomCode, 'Third');
+
+    await registry.updateRoomSettings(host.roomCode, host.playerId, {
+      ...DEFAULT_ROOM_SETTINGS,
+      turnTimeLimitSeconds: 15,
+    });
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.setReady(host.roomCode, guest.playerId, true);
+    await registry.setReady(host.roomCode, third.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+    await advanceThroughDealing(registry, host.roomCode, host.playerId);
+
+    const room = registry.getRoom(host.roomCode);
+    const hostState = room?.players.find(
+      (player) => player.playerId === host.playerId,
+    );
+
+    expect(room?.match).toBeTruthy();
+    expect(hostState).toBeTruthy();
+
+    if (!room?.match || !hostState) {
+      throw new Error('Expected room, match, and host state to exist.');
+    }
+
+    room.match.round.starterSeatIndex = hostState.seatIndex;
+    room.match.round.currentTurnSeatIndex = hostState.seatIndex;
+
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const showingResult = registry.buildSnapshot(host.roomCode, host.playerId);
+    const resultHoldMs = calculateResolutionDisplayDurationMs({
+      kind: 'timeout',
+      revealedHandCount:
+        showingResult.match?.timeout?.revealedHands.length ?? 0,
+    });
+
+    expect(showingResult.match?.phase).toBe('showing-result');
+    expect(showingResult.match?.timeout?.nextStarterPlayerId).toBe(
+      guest.playerId,
+    );
+
+    await registry.leaveRoom(host.roomCode, guest.playerId);
+    await vi.advanceTimersByTimeAsync(resultHoldMs);
+
+    const nextRound = registry.buildSnapshot(host.roomCode, third.playerId);
+
+    expect(nextRound.match?.phase).toBe('dealing');
+    expect(nextRound.match?.starterPlayerId).toBe(third.playerId);
+    expect(nextRound.match?.currentTurnPlayerId).toBe(third.playerId);
+    expect(
+      nextRound.players.find((player) => player.playerId === guest.playerId),
+    ).toBeUndefined();
   });
 
   it('reassigns the host after a 10-second disconnect window', async () => {

@@ -559,6 +559,11 @@ function RoomPage() {
           onSetPauseState={(paused) =>
             sendCommand('setMatchPaused', { paused })
           }
+          onLeaveRoom={() => {
+            removeRoomSession(roomCode);
+            sendCommand('leaveRoom');
+            startTransition(() => navigate('/'));
+          }}
           onKickPlayer={(playerId) => sendCommand('kickPlayer', { playerId })}
           onBecomeSpectator={() => sendCommand('becomeSpectator')}
           onSetSpectatorCardReveal={(enabled) =>

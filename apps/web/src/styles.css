@@ -3274,6 +3274,17 @@ h2 {
   box-shadow: 0 14px 32px rgba(48, 71, 132, 0.22);
 }
 
+.claim-visual-card.is-red-joker .claim-visual-rank,
+.claim-visual-card.is-red-joker .claim-visual-suit {
+  color: #ff7b91;
+  text-shadow: 0 0 14px rgba(255, 123, 145, 0.24);
+}
+
+.claim-visual-card.is-black-joker .claim-visual-rank,
+.claim-visual-card.is-black-joker .claim-visual-suit {
+  color: #dbe7ff;
+}
+
 .claim-visual-card.is-red-joker::after {
   border-color: rgba(255, 151, 184, 0.32);
 }

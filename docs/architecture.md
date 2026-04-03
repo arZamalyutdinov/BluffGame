@@ -96,7 +96,10 @@ React is the right choice for the browser client, but the authoritative game ser
 
 ### Important Derived Values
 
-- `handSize`: starts at `1`, increases by `1` each time a player loses a showdown, and caps at the room's `eliminationHandSize`.
+- `handSize`: starts at `1` for players present at match start, late joiners
+  enter at the rounded-down average current card count on the table, it
+  increases by `1` each time a player loses a showdown, and caps at the room's
+  `eliminationHandSize`.
 - `isEliminated`: true when a player loses a showdown while already at `eliminationHandSize`.
 - `starterSeatIndex`: rotates clockwise from the previous round's starter, skipping eliminated seats.
 - `turnTimer`: server-owned timer state for the active turn, including remaining time and pause state.
@@ -109,23 +112,30 @@ React is the right choice for the browser client, but the authoritative game ser
 
 1. A player creates a room and becomes the host.
 2. Other players join with a room code and a room-unique display name.
-3. The host may add bots in the lobby until the room reaches its seat cap, and
+3. Human players may also join while a match is already running. They take a
+   random open seat immediately, stay out of the current round, and enter the
+   next round with a `handSize` equal to the rounded-down average number of
+   cards currently on the table.
+4. A human player may leave the room entirely during an active match. If they
+   were in the live round, the server removes them from the room and re-deals
+   for the remaining active players unless that leaves only one active player.
+5. The host may add bots in the lobby until the room reaches its seat cap, and
    may remove lobby bots again if too many were added.
-4. The host starts the match once the minimum player count is met.
-5. The server selects a random starting seat for round 1.
-6. At the start of each round, the server shuffles the room's selected deck and deals each active player a number of cards equal to their current `handSize`. Rooms may use the standard 52-card deck or a 54-card deck with one red joker and one black joker.
-7. The server enters an explicit `dealing` phase: the snapshot includes deal timing metadata, no gameplay actions are accepted, and no turn timer runs yet.
-8. After the authoritative deal window ends, the round starter makes the opening claim.
-9. The server starts an authoritative timer for the active turn.
-10. Each next active player clockwise either raises the claim or checks it before that timer expires.
-11. A check reveals all round cards, the server evaluates the exact spoken claim according to the room's selected showdown-draw rule, and the loser takes a penalty card for future rounds or is eliminated.
-12. If the timer expires first, the active player loses the round automatically and the server applies the same penalty progression.
-13. Eliminated players remain in the room as spectators. They leave the active
+6. The host starts the match once the minimum player count is met.
+7. The server selects a random starting seat for round 1.
+8. At the start of each round, the server shuffles the room's selected round deck and deals each active, non-spectating player a number of cards equal to their current `handSize`. Players who joined mid-round are only included once the next round is created. Rooms may use the standard 52-card deck or a 54-card deck with one red joker and one black joker.
+9. The server enters an explicit `dealing` phase: the snapshot includes deal timing metadata, no gameplay actions are accepted, and no turn timer runs yet.
+10. After the authoritative deal window ends, the round starter makes the opening claim.
+11. The server starts an authoritative timer for the active turn.
+12. Each next active player clockwise either raises the claim or checks it before that timer expires.
+13. A check reveals all round cards, the server evaluates the exact spoken claim according to the room's selected showdown-draw rule, and the loser takes a penalty card for future rounds or is eliminated.
+14. If the timer expires first, the active player loses the round automatically and the server applies the same penalty progression.
+15. Eliminated players remain in the room as spectators. They leave the active
     seat ring when the next live round begins, and eliminated human viewers may
     privately toggle live-card reveal for themselves.
-14. After either outcome, the server enters a non-interactive `showing-result` hold: the result layer stays open on the table, no player or bot actions are accepted, and no turn timer runs.
-15. When that result hold ends, the deck is discarded, the next round begins from the next eligible starter, active seats reflow without eliminated players, and the server re-enters `dealing` before the next turn timer starts.
-16. The match ends when only one active player remains.
+16. After either outcome, the server enters a non-interactive `showing-result` hold: the result layer stays open on the table, no player or bot actions are accepted, and no turn timer runs.
+17. When that result hold ends, the deck is discarded, the next round begins from the next eligible starter chosen from the updated clockwise active seats, active seats reflow without eliminated players, and the server re-enters `dealing` before the next turn timer starts.
+18. The match ends when only one active player remains.
 
 ## Backend Design
 
@@ -330,6 +340,9 @@ The server may collapse some internal phases into simpler snapshots, but the dom
 - Crash or deploy restarts wipe active rooms.
 - Room chat is ephemeral and exists only in the in-memory room state.
 - Disconnects keep the player's seat reserved and rely on session-token reconnect support; active matches do not auto-remove or auto-forfeit disconnected players in v1.
+- Explicit leave is different from disconnect: leaving removes the player from
+  the room immediately and any next-turn or next-round seat selection is
+  recomputed from the updated player list.
 - If the current host disconnects, they get a `10` second grace window before
   host control moves to the next available player.
 - Hosts may move another player to the spectator rail, and a human player may
