@@ -280,9 +280,9 @@ export const enOrkishCatalog = {
     },
     jokerRuleDescriptions: {
       ...enCatalog.settings.jokerRuleDescriptions,
-      off: 'Play with da usual 52-card deck and no wild jokers.',
+      off: 'Play without wild jokers.',
       'two-jokers':
-        'Add one red and one black joker as full wild cards. Da red joker stands in for hearts or diamonds, and da black joker stands in for clubs or spades when suit matters.',
+        'Include red and black jokers as full wild cards in each deck copy. Da red joker stands in for hearts or diamonds, and da black joker stands in for clubs or spades when suit matters.',
     },
   },
   errors: {

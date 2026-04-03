@@ -19,7 +19,7 @@ import {
   applyRoundLoss,
   calculateDealingDurationMs,
   calculateResolutionDisplayDurationMs,
-  createDeck,
+  createDeckShoe,
   dealCards,
   getDefaultAppErrorMessage,
   getNextActiveSeatIndex,
@@ -868,17 +868,19 @@ export class RoomRegistry {
     const activePlayers = sortPlayersBySeat(room.players).filter(
       (player) => !player.isEliminated,
     );
-    const shuffledDeck = shuffleDeck(createDeck(room.settings.jokerRule));
+    const totalCardCount = activePlayers.reduce(
+      (count, player) => count + player.handSize,
+      0,
+    );
+    const shuffledDeck = shuffleDeck(
+      createDeckShoe(totalCardCount, room.settings.jokerRule),
+    );
     const handsByPlayerId = dealCards(
       shuffledDeck,
       activePlayers.map((player) => ({
         playerId: player.playerId,
         count: player.handSize,
       })),
-    );
-    const totalCardCount = activePlayers.reduce(
-      (count, player) => count + player.handSize,
-      0,
     );
     const remainingDeck = shuffledDeck.slice(totalCardCount);
 

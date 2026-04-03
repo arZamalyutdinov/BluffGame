@@ -4,6 +4,8 @@
 
 - Use a standard 52-card deck by default, with an optional 54-card variant that
   adds one red joker and one black joker.
+- If the active table needs more cards than one selected deck copy can provide,
+  add extra shuffled copies of that same deck for the round.
 - Support `2` to `8` players in v1.
 - Assign each joining player a random open seat. That clockwise seat order then
   stays fixed for the rest of the match.
@@ -23,7 +25,7 @@ Every room carries six host-controlled settings that can only change in the
 lobby:
 
 - `eliminationHandSize`: the hand size at which a player is eliminated if they
-  lose another showdown. Supported range: `2` to `6`. Default: `5`.
+  lose another showdown. Supported range: `2` to `12`. Default: `5`.
 - `claimOrderPreset`: the category ordering used for legal raises and UI claim
   ordering. Default: `flush below straight`.
 - `flushRule`: how plain flushes are spoken and compared. Supported values:
@@ -46,8 +48,11 @@ the match.
 ## Round Setup
 
 1. Shuffle the room's selected round deck at the start of every round:
-   - `off`: use the standard 52-card deck.
-   - `two jokers`: add one red joker and one black joker to make a 54-card deck.
+   - `off`: use one or more standard 52-card deck copies.
+   - `two jokers`: use one or more 54-card deck copies, each with one red joker
+     and one black joker.
+   - Add as many copies as needed to fully deal every active player's current
+     `handSize`.
 2. Deal each active, non-eliminated player a number of private cards equal to
    their current `handSize`.
 3. Enter a short server-owned `dealing` phase before live play begins:
@@ -252,7 +257,7 @@ tuple below from left to right:
 ## Joker Rules
 
 - When `jokerRule` is `off`, jokers do not exist in the round deck.
-- When `jokerRule` is `two jokers`, the deck contains:
+- When `jokerRule` is `two jokers`, each round-deck copy contains:
   - one red joker
   - one black joker
 - Jokers are full wild cards for exact-claim validation. They do not create new

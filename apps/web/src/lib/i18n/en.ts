@@ -170,9 +170,9 @@ const enJokerRuleLabels: Record<JokerRule, string> = {
 };
 
 const enJokerRuleDescriptions: Record<JokerRule, string> = {
-  off: 'Play with the current 52-card deck and no wild jokers.',
+  off: 'Play without wild jokers.',
   'two-jokers':
-    'Add one red and one black joker as full wild cards. Red joker can stand in for hearts or diamonds, and black joker can stand in for clubs or spades when suit matters.',
+    'Include red and black jokers as full wild cards in each deck copy. Red joker can stand in for hearts or diamonds, and black joker can stand in for clubs or spades when suit matters.',
 };
 
 const enErrors: Record<AppErrorCode, string> = {

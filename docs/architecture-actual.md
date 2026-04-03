@@ -254,7 +254,7 @@ While `room.phase === 'lobby'`:
 
 Room settings currently include:
 
-- `eliminationHandSize` in the range `2` to `6`
+- `eliminationHandSize` in the range `2` to `12`
 - `claimOrderPreset` with three supported presets
 - `flushRule` with `suit-only` and `suit-plus-rank`
 - `showdownDrawRule` with `revealed-only` and `draw-until-miss`

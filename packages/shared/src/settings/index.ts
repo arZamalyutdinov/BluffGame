@@ -82,8 +82,10 @@ export const JOKER_RULE_DESCRIPTIONS: Record<JokerRule, string> = {
 };
 
 export const MIN_ELIMINATION_HAND_SIZE = 2;
-export const MAX_ELIMINATION_HAND_SIZE = 6;
-export const ELIMINATION_HAND_SIZE_OPTIONS = [2, 3, 4, 5, 6] as const;
+export const MAX_ELIMINATION_HAND_SIZE = 12;
+export const ELIMINATION_HAND_SIZE_OPTIONS = [
+  2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+] as const;
 export const DEFAULT_ELIMINATION_HAND_SIZE = 5;
 export const MIN_TURN_TIME_LIMIT_SECONDS = 15;
 export const MAX_TURN_TIME_LIMIT_SECONDS = 120;
