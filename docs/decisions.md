@@ -57,7 +57,7 @@ Initial planning baseline recorded on March 14, 2026.
 - The loser of a showdown is the only player whose future `handSize` changes.
 - The next round starter rotates from the previous round's starter, not from the previous round's loser or winner.
 - A disconnect does not auto-remove a player from an active match; their seat is held for reconnect.
-- Explicit leave is only supported outside an active match in v1.
+- Explicit leave removes a player from the room even during an active match.
 - The first art pass can rely on gradients, glows, iconography, and reusable badge frames before we consider bespoke illustrated environments or premium cosmetic systems.
 
 ## Deferred Decisions

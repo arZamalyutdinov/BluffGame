@@ -66,6 +66,7 @@ interface TableViewProps {
   onChallengeClaim: () => void;
   onSetPauseState: (paused: boolean) => void;
   onRestartMatch: () => void;
+  onLeaveRoom: () => void;
   onKickPlayer: (playerId: string) => void;
   onBecomeSpectator: () => void;
   onSetSpectatorCardReveal: (enabled: boolean) => void;
@@ -457,6 +458,7 @@ export function TableView({
   onChallengeClaim,
   onSetPauseState,
   onRestartMatch,
+  onLeaveRoom,
   onKickPlayer,
   onBecomeSpectator,
   onSetSpectatorCardReveal,
@@ -1400,6 +1402,15 @@ export function TableView({
             <span>{catalog.table.autoOpenClaimBuilderHint}</span>
           </span>
         </label>
+
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={!isConnected || pendingCommand !== null}
+          onClick={onLeaveRoom}
+        >
+          {catalog.lobby.leaveRoom}
+        </button>
       </section>
     );
   }

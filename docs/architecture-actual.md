@@ -525,6 +525,7 @@ Current implemented behavior:
 - disconnect marks the player `disconnected`
 - the seat is kept
 - active matches do not auto-skip, auto-remove, or auto-forfeit that player
+- explicit leave removes the player from the room even during an active match
 - reconnect with the same `playerId` and `sessionToken` restores the session
 - if the host disconnects, a `10` second timer starts; if they do not return in
   time, host responsibility moves to the next available player

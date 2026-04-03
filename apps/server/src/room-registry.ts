@@ -155,8 +155,37 @@ function createBotRead(): BotOpponentRead {
   };
 }
 
-function getNextSeatIndex(room: RoomState): number {
-  return Math.max(-1, ...room.players.map((player) => player.seatIndex)) + 1;
+function getOpenSeatIndexes(room: RoomState): number[] {
+  return Array.from(
+    { length: MAX_ROOM_PLAYERS },
+    (_value, seatIndex) => seatIndex,
+  ).filter(
+    (seatIndex) =>
+      !room.players.some((player) => player.seatIndex === seatIndex),
+  );
+}
+
+function getRandomOpenSeatIndex(room: RoomState): number {
+  const openSeatIndexes = getOpenSeatIndexes(room);
+
+  const randomSeatIndex =
+    openSeatIndexes[Math.floor(Math.random() * openSeatIndexes.length)];
+
+  if (randomSeatIndex === undefined) {
+    throw new Error('Unable to choose an open seat.');
+  }
+
+  return randomSeatIndex;
+}
+
+function getFirstOpenSeatIndex(room: RoomState): number {
+  const firstOpenSeatIndex = getOpenSeatIndexes(room)[0];
+
+  if (firstOpenSeatIndex === undefined) {
+    throw new Error('Unable to choose an open seat.');
+  }
+
+  return firstOpenSeatIndex;
 }
 
 function reindexLobbySeats(players: PlayerState[]): PlayerState[] {
@@ -164,6 +193,10 @@ function reindexLobbySeats(players: PlayerState[]): PlayerState[] {
     ...player,
     seatIndex,
   }));
+}
+
+function isPlayerInRound(round: RoundState, playerId: string): boolean {
+  return round.handsByPlayerId[playerId] !== undefined;
 }
 
 export class RoomRegistry {
@@ -400,10 +433,6 @@ export class RoomRegistry {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
 
-      if (room.phase !== 'lobby') {
-        throw new CommandError('room-join-lobby-only');
-      }
-
       if (room.players.length >= MAX_ROOM_PLAYERS) {
         throw new CommandError('room-full');
       }
@@ -424,12 +453,12 @@ export class RoomRegistry {
         sessionToken,
         socketId: undefined,
         name,
-        seatIndex: getNextSeatIndex(room),
+        seatIndex: getRandomOpenSeatIndex(room),
         isHost: false,
         isBot: false,
         isReady: false,
         connectionStatus: 'disconnected',
-        handSize: 1,
+        handSize: this.calculateJoinHandSize(room),
         isEliminated: false,
         spectatorRevealEnabled: false,
       });
@@ -502,18 +531,18 @@ export class RoomRegistry {
   async leaveRoom(code: string, playerId: string) {
     return this.withRoomLock(code, () => {
       const room = this.requireRoom(code);
-
-      if (room.phase === 'in-match') {
-        throw new CommandError('leave-during-match-unsupported');
-      }
+      this.healAutonomousState(room);
+      const player = this.requirePlayer(room, playerId);
+      const previousHostPlayerId = room.hostPlayerId;
 
       room.players = room.players.filter(
-        (player) => player.playerId !== playerId,
+        (candidate) => candidate.playerId !== playerId,
       );
       delete room.playerReadsById[playerId];
 
-      if (room.players.filter((player) => !player.isBot).length === 0) {
+      if (room.players.filter((candidate) => !candidate.isBot).length === 0) {
         this.clearTurnTimeout(code);
+        this.clearDealingHold(code);
         this.clearBotTurn(code);
         this.clearResultHold(code);
         this.clearHostReassignment(code);
@@ -521,7 +550,18 @@ export class RoomRegistry {
         return;
       }
 
-      this.maybeReassignHost(room, playerId);
+      this.maybeReassignHost(room, previousHostPlayerId);
+
+      if (room.phase === 'lobby') {
+        return;
+      }
+
+      if (room.phase === 'match-complete') {
+        this.repairMatchReferencesAfterPlayerRemoval(room, player);
+        return;
+      }
+
+      this.handleActiveMatchLeave(room, player);
     });
   }
 
@@ -547,7 +587,7 @@ export class RoomRegistry {
         sessionToken: randomUUID(),
         socketId: undefined,
         name,
-        seatIndex: getNextSeatIndex(room),
+        seatIndex: getFirstOpenSeatIndex(room),
         isHost: false,
         isBot: true,
         isReady: true,
@@ -1206,30 +1246,19 @@ export class RoomRegistry {
   private buildRevealedHands(
     room: RoomState,
     handsByPlayerId: Record<string, Card[]>,
-    loserPlayerId: string,
   ) {
-    return sortPlayersBySeat(room.players)
-      .filter(
-        (player) => !player.isEliminated || player.playerId === loserPlayerId,
-      )
-      .map((player) => ({
-        playerId: player.playerId,
-        cards: sortCardsDescending(handsByPlayerId[player.playerId] ?? []),
-      }));
+    return this.getCurrentRoundPlayers(room).map((player) => ({
+      playerId: player.playerId,
+      cards: sortCardsDescending(handsByPlayerId[player.playerId] ?? []),
+    }));
   }
 
   private buildSpectatorRevealedHands(
     room: RoomState,
     viewerPlayerId: string,
   ): RevealedHandSnapshot[] {
-    if (!room.match) {
-      return [];
-    }
-
-    return sortPlayersBySeat(room.players)
-      .filter(
-        (player) => !player.isEliminated && player.playerId !== viewerPlayerId,
-      )
+    return this.getCurrentRoundPlayers(room)
+      .filter((player) => player.playerId !== viewerPlayerId)
       .map((player) => ({
         playerId: player.playerId,
         cards: sortCardsDescending(
@@ -1361,7 +1390,7 @@ export class RoomRegistry {
     );
     const resolution = applyRoundLoss({
       loserPlayerId: timedOutPlayer.playerId,
-      players: this.toPenaltyPlayerStates(room),
+      players: this.toCurrentRoundPenaltyPlayerStates(room),
       eliminationHandSize: room.settings.eliminationHandSize,
     });
 
@@ -1374,7 +1403,6 @@ export class RoomRegistry {
     const revealedHands = this.buildRevealedHands(
       room,
       match.round.handsByPlayerId,
-      resolution.loserPlayerId,
     );
     room.playerReadsById[timedOutPlayer.playerId] = {
       ...(room.playerReadsById[timedOutPlayer.playerId] ?? createBotRead()),
@@ -1529,9 +1557,7 @@ export class RoomRegistry {
     const totalCardsInRound = Object.values(
       room.match.round.handsByPlayerId,
     ).reduce((count, cards) => count + cards.length, 0);
-    const activePlayerCount = room.players.filter(
-      (player) => !player.isEliminated,
-    ).length;
+    const activePlayerCount = this.getCurrentRoundPlayers(room).length;
     const claimantRead = room.match.round.lastClaimantPlayerId
       ? room.playerReadsById[room.match.round.lastClaimantPlayerId]
       : undefined;
@@ -1561,6 +1587,47 @@ export class RoomRegistry {
 
   private toPenaltyPlayerStates(room: RoomState) {
     return room.players.map((player) => ({
+      playerId: player.playerId,
+      seatIndex: player.seatIndex,
+      handSize: player.handSize,
+      isEliminated: player.isEliminated,
+    }));
+  }
+
+  private getCurrentRoundPlayers(room: RoomState): PlayerState[] {
+    if (!room.match) {
+      return [];
+    }
+
+    const { round } = room.match;
+
+    return sortPlayersBySeat(room.players).filter((player) =>
+      isPlayerInRound(round, player.playerId),
+    );
+  }
+
+  private calculateJoinHandSize(room: RoomState): number {
+    if (room.phase !== 'in-match' || !room.match) {
+      return 1;
+    }
+
+    const currentRoundPlayers = this.getCurrentRoundPlayers(room);
+
+    if (currentRoundPlayers.length === 0) {
+      return 1;
+    }
+
+    const totalCardsOnTable = currentRoundPlayers.reduce(
+      (count, player) =>
+        count + (room.match?.round.handsByPlayerId[player.playerId]?.length ?? 0),
+      0,
+    );
+
+    return Math.max(1, Math.floor(totalCardsOnTable / currentRoundPlayers.length));
+  }
+
+  private toCurrentRoundPenaltyPlayerStates(room: RoomState) {
+    return this.getCurrentRoundPlayers(room).map((player) => ({
       playerId: player.playerId,
       seatIndex: player.seatIndex,
       handSize: player.handSize,
@@ -1666,6 +1733,7 @@ export class RoomRegistry {
   private movePlayerToSpectator(room: RoomState, playerId: string) {
     const match = this.requireActiveMatch(room);
     const player = this.requirePlayer(room, playerId);
+    const wasInCurrentRound = isPlayerInRound(match.round, player.playerId);
 
     if (match.phase === 'match-complete') {
       throw new CommandError('match-already-complete');
@@ -1700,6 +1768,10 @@ export class RoomRegistry {
       return;
     }
 
+    if (!wasInCurrentRound) {
+      return;
+    }
+
     const nextStarterSeatIndex = remainingActivePlayers.some(
       (candidate) => candidate.seatIndex === match.round.currentTurnSeatIndex,
     )
@@ -1717,6 +1789,129 @@ export class RoomRegistry {
       ...(match.lastTimeout ? { lastTimeout: match.lastTimeout } : {}),
     });
     this.syncAutonomousTurn(room);
+  }
+
+  private handleActiveMatchLeave(room: RoomState, removedPlayer: PlayerState) {
+    const match = this.requireActiveMatch(room);
+    const wasInCurrentRound = isPlayerInRound(match.round, removedPlayer.playerId);
+    const remainingActivePlayers = sortPlayersBySeat(room.players).filter(
+      (player) => !player.isEliminated,
+    );
+
+    if (remainingActivePlayers.length <= 1) {
+      this.clearTurnTimeout(room.code);
+      this.clearDealingHold(room.code);
+      this.clearBotTurn(room.code);
+      this.clearResultHold(room.code);
+
+      room.phase = 'match-complete';
+      match.phase = 'match-complete';
+      match.dealing = undefined;
+      match.turnTimer = undefined;
+      match.winnerPlayerId = remainingActivePlayers[0]?.playerId;
+      this.repairMatchReferencesAfterPlayerRemoval(room, removedPlayer);
+      return;
+    }
+
+    if (match.phase === 'showing-result') {
+      this.repairMatchReferencesAfterPlayerRemoval(room, removedPlayer);
+      return;
+    }
+
+    if (!wasInCurrentRound) {
+      return;
+    }
+
+    const nextStarterSeatIndex = remainingActivePlayers.some(
+      (player) => player.seatIndex === match.round.currentTurnSeatIndex,
+    )
+      ? match.round.currentTurnSeatIndex
+      : getNextActiveSeatIndex(
+          this.toPenaltyPlayerStates(room),
+          removedPlayer.seatIndex,
+        );
+
+    room.phase = 'in-match';
+    room.match = this.createRound(room, {
+      roundNumber: match.round.roundNumber,
+      starterSeatIndex: nextStarterSeatIndex,
+      ...(match.lastShowdown ? { lastShowdown: match.lastShowdown } : {}),
+      ...(match.lastTimeout ? { lastTimeout: match.lastTimeout } : {}),
+    });
+    this.syncAutonomousTurn(room);
+  }
+
+  private getReplacementSeatIndexAfterPlayerRemoval(
+    room: RoomState,
+    removedSeatIndex: number,
+  ): number | undefined {
+    if (room.players.length === 0) {
+      return undefined;
+    }
+
+    const activePlayers = sortPlayersBySeat(room.players).filter(
+      (player) => !player.isEliminated,
+    );
+
+    if (activePlayers.length > 0) {
+      return getNextActiveSeatIndex(this.toPenaltyPlayerStates(room), removedSeatIndex);
+    }
+
+    return sortPlayersBySeat(room.players)[0]?.seatIndex;
+  }
+
+  private repairMatchReferencesAfterPlayerRemoval(
+    room: RoomState,
+    removedPlayer: PlayerState,
+  ) {
+    const match = room.match;
+
+    if (!match) {
+      return;
+    }
+
+    const replacementSeatIndex = this.getReplacementSeatIndexAfterPlayerRemoval(
+      room,
+      removedPlayer.seatIndex,
+    );
+
+    if (replacementSeatIndex === undefined) {
+      return;
+    }
+
+    const hasSeat = (seatIndex: number) =>
+      room.players.some((player) => player.seatIndex === seatIndex);
+
+    if (!hasSeat(match.round.starterSeatIndex)) {
+      match.round.starterSeatIndex = replacementSeatIndex;
+    }
+
+    if (!hasSeat(match.round.currentTurnSeatIndex)) {
+      match.round.currentTurnSeatIndex = replacementSeatIndex;
+    }
+
+    const replacementPlayerId = this.requirePlayerBySeat(
+      room,
+      replacementSeatIndex,
+    ).playerId;
+
+    if (match.lastShowdown?.nextStarterPlayerId === removedPlayer.playerId) {
+      match.lastShowdown = {
+        ...match.lastShowdown,
+        nextStarterPlayerId: replacementPlayerId,
+      };
+    }
+
+    if (match.lastTimeout?.nextStarterPlayerId === removedPlayer.playerId) {
+      match.lastTimeout = {
+        ...match.lastTimeout,
+        nextStarterPlayerId: replacementPlayerId,
+      };
+    }
+
+    if (match.winnerPlayerId === removedPlayer.playerId) {
+      match.winnerPlayerId = replacementPlayerId;
+    }
   }
 
   private async withRoomLock<T>(
@@ -1795,7 +1990,7 @@ export class RoomRegistry {
       claim,
     });
     match.round.currentTurnSeatIndex = getNextActiveSeatIndex(
-      this.toPenaltyPlayerStates(room),
+      this.toCurrentRoundPenaltyPlayerStates(room),
       player.seatIndex,
     );
     match.phase = 'awaiting-response';
@@ -1835,7 +2030,7 @@ export class RoomRegistry {
       claimantPlayerId: match.round.lastClaimantPlayerId,
       challengerPlayerId: challenger.playerId,
       handsByPlayerId: match.round.handsByPlayerId,
-      players: this.toPenaltyPlayerStates(room),
+      players: this.toCurrentRoundPenaltyPlayerStates(room),
       eliminationHandSize: room.settings.eliminationHandSize,
       remainingDeck: match.round.remainingDeck,
       showdownDrawRule: room.settings.showdownDrawRule,
@@ -1873,7 +2068,6 @@ export class RoomRegistry {
     const revealedHands = this.buildRevealedHands(
       room,
       match.round.handsByPlayerId,
-      resolution.loserPlayerId,
     );
     const showdownBase = {
       startedAtMs: this.now(),

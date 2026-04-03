@@ -215,6 +215,7 @@ function renderTable(snapshot: RoomSnapshot) {
       onChallengeClaim={() => {}}
       onSetPauseState={() => {}}
       onRestartMatch={() => {}}
+      onLeaveRoom={() => {}}
       onKickPlayer={() => {}}
       onBecomeSpectator={() => {}}
       onSetSpectatorCardReveal={() => {}}
@@ -739,6 +740,7 @@ describe('TableView match fixtures', () => {
         onChallengeClaim={() => {}}
         onSetPauseState={() => {}}
         onRestartMatch={() => {}}
+        onLeaveRoom={() => {}}
         onKickPlayer={() => {}}
         onBecomeSpectator={() => {}}
         onSetSpectatorCardReveal={() => {}}

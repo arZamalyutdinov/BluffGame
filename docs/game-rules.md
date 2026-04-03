@@ -5,12 +5,17 @@
 - Use a standard 52-card deck by default, with an optional 54-card variant that
   adds one red joker and one black joker.
 - Support `2` to `8` players in v1.
-- Seat players in a fixed clockwise order when they join the room.
+- Assign each joining player a random open seat. That clockwise seat order then
+  stays fixed for the rest of the match.
 - While the room is in the lobby, the host may add bots to fill open seats and
   remove lobby bots again if too many were added.
 - Bots use the same information limits as human players: their own hand, public
   room state, and the unseen remainder of the deck.
-- Each player starts the match with a `handSize` of `1`.
+- Each player present when the match starts begins with a `handSize` of `1`.
+- If a human joins during an active match, they take a random open seat
+  immediately, sit out the current round, and enter the next round with a
+  `handSize` equal to the rounded-down average number of cards currently on the
+  table.
 
 ## Room Settings
 
@@ -75,12 +80,16 @@ the current round, not about a single player's private hand.
    actions are accepted and no turn timer is running.
 8. Eliminated spectators cannot make gameplay actions. They may still use room
    chat and open the Players drawer.
-9. During an active match, a human player may choose `Stop playing` and become
-   a spectator.
-10. During an active match, the host may move another player to the spectator
+9. A human who joins during an active match does not receive cards for the
+   current round and does not affect its hidden pool, turn order, or showdown.
+10. During an active match, a human player may choose `Stop playing` and become
+    a spectator.
+11. During an active match, a human player may also leave the room entirely.
+    They are removed from the player list instead of staying as a spectator.
+12. During an active match, the host may move another player to the spectator
     rail from the Players drawer.
-11. If the next player raises, play continues clockwise.
-12. If the next player checks, the round ends in a showdown immediately.
+13. If the next player raises, play continues clockwise.
+14. If the next player checks, the round ends in a showdown immediately.
 
 ## Timeout Resolution
 
@@ -143,6 +152,12 @@ the current round, not about a single player's private hand.
 - If a live player becomes a spectator during `dealing`,
   `awaiting-opening-claim`, or `awaiting-response`, the current round is
   discarded and immediately re-dealt for the remaining active players.
+- If a live player leaves the room during `dealing`, `awaiting-opening-claim`,
+  or `awaiting-response`, remove them from the room, then discard that round
+  and immediately re-deal for the remaining active players.
+- Whenever a round is re-dealt or a new round begins after players joined or
+  left active play, choose the next acting seat from the updated clockwise seat
+  order.
 - If that leaves only one active player, the match ends immediately.
 - If only one player remains active after a showdown, that player wins the
   match.
@@ -299,3 +314,5 @@ Examples:
 - Disconnects keep a player's place in the room. If the disconnected player is
   also the host, they get a `10` second reconnect window before host control is
   reassigned.
+- Explicit leave is different from disconnect: leaving removes that player from
+  the room immediately and does not reserve their seat for reconnect.
