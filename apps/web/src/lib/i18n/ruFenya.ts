@@ -100,10 +100,10 @@ export const ruFenyaCatalog = {
     playersTitle: 'Братва',
     hostBadge: 'смотрящий',
     waitingToStart: 'Ждем, пока смотрящий даст старт.',
-    hostLead: 'Смотрящий рулит стартом. Подкрути понятия и запускай первый рамс.',
+    hostLead:
+      'Смотрящий рулит стартом. Подкрути понятия и запускай первый рамс.',
     seatLabel: (seatIndex: number) => `Шконка ${seatIndex + 1}`,
-    seatHostLabel: (seatIndex: number) =>
-      `Шконка ${seatIndex + 1} • смотрящий`,
+    seatHostLabel: (seatIndex: number) => `Шконка ${seatIndex + 1} • смотрящий`,
     readyStatus: 'по масти',
     notReadyStatus: 'не по масти',
     connectedStatus: 'на связи',
@@ -141,8 +141,7 @@ export const ruFenyaCatalog = {
     matchClosed: 'Стол закрыт, пока смотрящий не вернет всех в хату.',
     closeClaimBuilder: 'Закрыть сборку базара',
     selectedClaim: (label: string) => `Подобрано: ${label}`,
-    strongerClaimPrompt:
-      'Выбери базар посильнее того, что уже лежит на столе.',
+    strongerClaimPrompt: 'Выбери базар посильнее того, что уже лежит на столе.',
     openingClaimPrompt: 'Выбери базар, с которого начнется рамс.',
     roundTitle: (roundNumber: number) => `Круг ${roundNumber}`,
     dealingLead: 'Карты пошли с общака.',
@@ -266,8 +265,7 @@ export const ruFenyaCatalog = {
       challenger: string,
       claimant: string,
       claimLabel: string,
-    ) =>
-      `${challenger} вскрыл ${claimant}, а ${claimLabel} там и правда была.`,
+    ) => `${challenger} вскрыл ${claimant}, а ${claimLabel} там и правда была.`,
     bluffCaughtText: (
       challenger: string,
       claimant: string,
@@ -286,8 +284,7 @@ export const ruFenyaCatalog = {
     loserEliminated: (name: string) => `${name} слетает со шконки.`,
     timeoutNote: (claimLabel: string) =>
       `Когда таймер сдох, на столе еще лежала заявка ${claimLabel}.`,
-    timeoutOpeningNote:
-      'Таймер вышел раньше, чем кто-то успел открыть рамс.',
+    timeoutOpeningNote: 'Таймер вышел раньше, чем кто-то успел открыть рамс.',
     timeoutNoValidation:
       'Тайм-аут закрывает круг без проверки загнанного базара.',
   },
@@ -348,8 +345,7 @@ export const ruFenyaCatalog = {
     'host-only': 'Такое решает только смотрящий.',
     'game-paused': 'Рамс стоит на паузе.',
     'not-your-turn': 'Сейчас не твой базар.',
-    'claim-not-stronger':
-      'Новый базар обязан быть строже предыдущего.',
+    'claim-not-stronger': 'Новый базар обязан быть строже предыдущего.',
     'no-claim-to-challenge': 'Пока нечего вскрывать.',
     'player-not-bot': 'Этот тип вообще не бот.',
   },

@@ -17,8 +17,8 @@ import {
 } from 'react';
 
 import { type LocaleCatalog, enCatalog } from './en.js';
-import { ruFenyaCatalog } from './ruFenya.js';
 import { ruCatalog } from './ru.js';
+import { ruFenyaCatalog } from './ruFenya.js';
 
 export const SUPPORTED_LOCALES = ['en', 'ru', 'ru-x-fenya'] as const;
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
