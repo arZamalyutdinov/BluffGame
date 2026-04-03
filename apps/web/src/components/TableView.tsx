@@ -186,7 +186,6 @@ function buildSeatAnchorCopy({
   labels,
   player,
   isCurrentTurn,
-  isLowCards,
   isDisconnected,
   isSelf,
   isPaused,
@@ -199,11 +198,9 @@ function buildSeatAnchorCopy({
     offline: string;
     acting: string;
     paused: string;
-    pressure: string;
   };
   player: PlayerSnapshot;
   isCurrentTurn: boolean;
-  isLowCards: boolean;
   isDisconnected: boolean;
   isSelf: boolean;
   isPaused: boolean;
@@ -223,9 +220,7 @@ function buildSeatAnchorCopy({
         ? isPaused
           ? labels.paused
           : labels.acting
-        : isLowCards
-          ? labels.pressure
-          : undefined;
+        : undefined;
 
   return {
     ...(roleChipLabel ? { roleChipLabel } : {}),
@@ -320,6 +315,8 @@ export function shouldPlaySelfTurnRing({
   isDealing,
   isShowingResult,
   hasWinner,
+  wasActionableOnCurrentTurn = false,
+  isActionableOnCurrentTurn = false,
 }: {
   previousTurnPlayerId: string | null;
   currentTurnPlayerId: string;
@@ -328,15 +325,33 @@ export function shouldPlaySelfTurnRing({
   isDealing: boolean;
   isShowingResult: boolean;
   hasWinner: boolean;
+  wasActionableOnCurrentTurn?: boolean;
+  isActionableOnCurrentTurn?: boolean;
 }): boolean {
+  if (
+    hasWinner ||
+    isShowingResult ||
+    isDealing ||
+    currentTurnPlayerId !== selfPlayerId ||
+    !isActionableOnCurrentTurn
+  ) {
+    return false;
+  }
+
+  if (resumedFromBlockedPhase) {
+    return true;
+  }
+
+  if (previousTurnPlayerId === null) {
+    return false;
+  }
+
+  if (previousTurnPlayerId !== currentTurnPlayerId) {
+    return true;
+  }
+
   return (
-    !hasWinner &&
-    !isShowingResult &&
-    !isDealing &&
-    currentTurnPlayerId === selfPlayerId &&
-    (resumedFromBlockedPhase ||
-      (previousTurnPlayerId !== null &&
-        previousTurnPlayerId !== currentTurnPlayerId))
+    previousTurnPlayerId === selfPlayerId && !wasActionableOnCurrentTurn
   );
 }
 
@@ -492,6 +507,7 @@ export function TableView({
   });
   const previousTurnPlayerIdRef = useRef<string | null>(null);
   const previousTurnCueBlockedRef = useRef<boolean | null>(null);
+  const previousActionableSelfTurnRef = useRef(false);
   const previousClaimSequenceRef = useRef<number | null>(null);
   const previousRenderedClaimRef = useRef<ClaimHistoryEntry | null>(null);
   const autoOpenedClaimComposerTurnTokenRef = useRef<string | null>(null);
@@ -978,60 +994,67 @@ export function TableView({
     if (winner || isShowingResult || isDealing) {
       previousTurnCueBlockedRef.current = true;
       previousTurnPlayerIdRef.current = currentTurnPlayerId;
+      previousActionableSelfTurnRef.current = false;
       setTurnAnnouncement(null);
       return;
     }
 
     const previousTurnPlayerId = previousTurnPlayerIdRef.current;
     const resumedFromBlockedPhase = previousTurnCueBlockedRef.current === true;
+    const wasActionableOnCurrentTurn = previousActionableSelfTurnRef.current;
+    const isActionableOnCurrentTurn = canOpenClaimComposer;
 
     if (previousTurnPlayerId && previousTurnPlayerId !== currentTurnPlayerId) {
       setTurnAnnouncement({
         playerId: currentTurnPlayerId,
         token: Date.now(),
       });
+    }
 
-      if (
-        shouldPlaySelfTurnRing({
-          previousTurnPlayerId,
-          currentTurnPlayerId,
-          selfPlayerId: snapshot.selfPlayerId,
-          resumedFromBlockedPhase,
-          isDealing,
-          isShowingResult,
-          hasWinner: Boolean(winner),
-        })
-      ) {
-        const AudioContextConstructor = getAudioContextConstructor();
+    if (
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId,
+        currentTurnPlayerId,
+        selfPlayerId: snapshot.selfPlayerId,
+        resumedFromBlockedPhase,
+        isDealing,
+        isShowingResult,
+        hasWinner: Boolean(winner),
+        wasActionableOnCurrentTurn,
+        isActionableOnCurrentTurn,
+      })
+    ) {
+      const AudioContextConstructor = getAudioContextConstructor();
 
-        if (AudioContextConstructor) {
-          const audioContext =
-            turnRingAudioContextRef.current &&
-            turnRingAudioContextRef.current.state !== 'closed'
-              ? turnRingAudioContextRef.current
-              : new AudioContextConstructor();
+      if (AudioContextConstructor) {
+        const audioContext =
+          turnRingAudioContextRef.current &&
+          turnRingAudioContextRef.current.state !== 'closed'
+            ? turnRingAudioContextRef.current
+            : new AudioContextConstructor();
 
-          turnRingAudioContextRef.current = audioContext;
+        turnRingAudioContextRef.current = audioContext;
 
-          if (audioContext.state === 'suspended') {
-            void audioContext
-              .resume()
-              .then(() => {
-                if (audioContext.state === 'running') {
-                  playTurnRing(audioContext);
-                }
-              })
-              .catch(() => {});
-          } else if (audioContext.state === 'running') {
-            playTurnRing(audioContext);
-          }
+        if (audioContext.state === 'suspended') {
+          void audioContext
+            .resume()
+            .then(() => {
+              if (audioContext.state === 'running') {
+                playTurnRing(audioContext);
+              }
+            })
+            .catch(() => {});
+        } else if (audioContext.state === 'running') {
+          playTurnRing(audioContext);
         }
       }
     }
 
     previousTurnCueBlockedRef.current = false;
     previousTurnPlayerIdRef.current = currentTurnPlayerId;
+    previousActionableSelfTurnRef.current = isActionableOnCurrentTurn;
   }, [
+    canOpenClaimComposer,
     currentTurnPlayerId,
     isDealing,
     isShowingResult,
@@ -1760,11 +1783,9 @@ export function TableView({
               offline: t('offline'),
               acting: t('acting'),
               paused: t('paused'),
-              pressure: t('pressure'),
             },
             player,
             isCurrentTurn,
-            isLowCards,
             isDisconnected,
             isSelf: false,
             isPaused,
@@ -1837,7 +1858,7 @@ export function TableView({
                   ) : null}
                   {seatCopy.stateChipLabel ? (
                     <span
-                      className={`poker-seat-tag is-state ${player.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-offline' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-pressure' : ''}`}
+                      className={`poker-seat-tag is-state ${player.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-offline' : ''} ${isCurrentTurn ? 'is-current-turn' : ''}`}
                     >
                       {seatCopy.stateChipLabel}
                     </span>
@@ -1871,11 +1892,9 @@ export function TableView({
         offline: t('offline'),
         acting: t('acting'),
         paused: t('paused'),
-        pressure: t('pressure'),
       },
       player: selfPlayer,
       isCurrentTurn,
-      isLowCards,
       isDisconnected,
       isSelf: true,
       isPaused,
@@ -1917,7 +1936,7 @@ export function TableView({
                 ) : null}
                 {seatCopy.stateChipLabel ? (
                   <span
-                    className={`poker-seat-tag is-state ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-offline' : ''} ${isCurrentTurn ? 'is-current-turn' : ''} ${isLowCards ? 'is-pressure' : ''}`}
+                    className={`poker-seat-tag is-state ${selfPlayer.isEliminated ? 'is-eliminated' : ''} ${isDisconnected ? 'is-offline' : ''} ${isCurrentTurn ? 'is-current-turn' : ''}`}
                   >
                     {seatCopy.stateChipLabel}
                   </span>

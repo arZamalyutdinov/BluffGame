@@ -424,6 +424,7 @@ describe('TableView match fixtures', () => {
         isDealing: false,
         isShowingResult: false,
         hasWinner: false,
+        isActionableOnCurrentTurn: true,
       }),
     ).toBe(true);
 
@@ -436,6 +437,7 @@ describe('TableView match fixtures', () => {
         isDealing: false,
         isShowingResult: false,
         hasWinner: false,
+        isActionableOnCurrentTurn: true,
       }),
     ).toBe(false);
 
@@ -448,6 +450,7 @@ describe('TableView match fixtures', () => {
         isDealing: false,
         isShowingResult: false,
         hasWinner: false,
+        isActionableOnCurrentTurn: true,
       }),
     ).toBe(false);
 
@@ -460,6 +463,7 @@ describe('TableView match fixtures', () => {
         isDealing: true,
         isShowingResult: false,
         hasWinner: false,
+        isActionableOnCurrentTurn: false,
       }),
     ).toBe(false);
 
@@ -472,6 +476,7 @@ describe('TableView match fixtures', () => {
         isDealing: false,
         isShowingResult: false,
         hasWinner: false,
+        isActionableOnCurrentTurn: true,
       }),
     ).toBe(true);
 
@@ -484,6 +489,35 @@ describe('TableView match fixtures', () => {
         isDealing: false,
         isShowingResult: false,
         hasWinner: false,
+        isActionableOnCurrentTurn: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p1',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        wasActionableOnCurrentTurn: false,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p1',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        wasActionableOnCurrentTurn: true,
+        isActionableOnCurrentTurn: true,
       }),
     ).toBe(false);
   });
