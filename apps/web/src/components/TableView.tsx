@@ -350,14 +350,10 @@ export function shouldPlaySelfTurnRing({
     return true;
   }
 
-  return (
-    previousTurnPlayerId === selfPlayerId && !wasActionableOnCurrentTurn
-  );
+  return previousTurnPlayerId === selfPlayerId && !wasActionableOnCurrentTurn;
 }
 
-function getAudioContextConstructor():
-  | typeof AudioContext
-  | undefined {
+function getAudioContextConstructor(): typeof AudioContext | undefined {
   if (typeof window === 'undefined') {
     return undefined;
   }
@@ -408,42 +404,46 @@ function playTurnRing(audioContext: AudioContext) {
   ];
   const strikeOffsetsSeconds = [0, 0.13];
 
-  strikeOffsetsSeconds.forEach((strikeOffsetSeconds, strikeIndex) => {
-    partials.forEach(
-      ({ frequency, gain, decaySeconds, type, detuneCents }) => {
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-        const strikeAt = startAt + strikeOffsetSeconds;
-        const strikeGain = strikeIndex === 0 ? gain : gain * 0.58;
+  for (const [
+    strikeIndex,
+    strikeOffsetSeconds,
+  ] of strikeOffsetsSeconds.entries()) {
+    for (const {
+      frequency,
+      gain,
+      decaySeconds,
+      type,
+      detuneCents,
+    } of partials) {
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      const strikeAt = startAt + strikeOffsetSeconds;
+      const strikeGain = strikeIndex === 0 ? gain : gain * 0.58;
 
-        oscillator.type = type;
-        oscillator.frequency.setValueAtTime(frequency, strikeAt);
-        oscillator.detune.setValueAtTime(detuneCents, strikeAt);
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(frequency, strikeAt);
+      oscillator.detune.setValueAtTime(detuneCents, strikeAt);
 
-        gainNode.gain.setValueAtTime(0.0001, strikeAt);
-        gainNode.gain.linearRampToValueAtTime(
-          strikeGain,
-          strikeAt + 0.012,
-        );
-        gainNode.gain.exponentialRampToValueAtTime(
-          0.0001,
-          strikeAt + decaySeconds,
-        );
+      gainNode.gain.setValueAtTime(0.0001, strikeAt);
+      gainNode.gain.linearRampToValueAtTime(strikeGain, strikeAt + 0.012);
+      gainNode.gain.exponentialRampToValueAtTime(
+        0.0001,
+        strikeAt + decaySeconds,
+      );
 
-        oscillator.connect(gainNode);
-        gainNode.connect(outputGain);
-        oscillator.start(strikeAt);
-        oscillator.stop(strikeAt + decaySeconds + 0.06);
+      oscillator.connect(gainNode);
+      gainNode.connect(outputGain);
+      oscillator.start(strikeAt);
+      oscillator.stop(strikeAt + decaySeconds + 0.06);
 
-        cleanupNodes.push(oscillator, gainNode);
-      },
-    );
-  });
+      cleanupNodes.push(oscillator, gainNode);
+    }
+  }
 
   window.setTimeout(() => {
-    cleanupNodes.forEach((node) => {
+    for (const node of cleanupNodes) {
       node.disconnect();
-    });
+    }
   }, 1_600);
 }
 
