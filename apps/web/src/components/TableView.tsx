@@ -1731,18 +1731,20 @@ export function TableView({
     const visibleCount = Math.max(1, count);
     const maxOffsetRem = Math.min(1.6, ((visibleCount - 1) / 2) * 0.72);
     const maxRotationDeg = Math.min(20, ((visibleCount - 1) / 2) * 10);
-    const hiddenCardOffsets = Array.from({ length: visibleCount }, (_, index) =>
-      visibleCount === 1
-        ? { offsetRem: 0, rotationDeg: 0 }
-        : (() => {
-            const progress = index / (visibleCount - 1);
-            const normalizedOffset = progress * 2 - 1;
+    const hiddenCardOffsets = Array.from(
+      { length: visibleCount },
+      (_, index) =>
+        visibleCount === 1
+          ? { offsetRem: 0, rotationDeg: 0 }
+          : (() => {
+              const progress = index / (visibleCount - 1);
+              const normalizedOffset = progress * 2 - 1;
 
-            return {
-              offsetRem: normalizedOffset * maxOffsetRem,
-              rotationDeg: normalizedOffset * maxRotationDeg,
-            };
-          })(),
+              return {
+                offsetRem: normalizedOffset * maxOffsetRem,
+                rotationDeg: normalizedOffset * maxRotationDeg,
+              };
+            })(),
     );
 
     return (
@@ -1750,10 +1752,10 @@ export function TableView({
         className={`poker-hidden-card-fan ${className ?? ''}`.trim()}
         aria-hidden="true"
       >
-        {hiddenCardOffsets.map(({ offsetRem, rotationDeg }, index) => {
+        {hiddenCardOffsets.map(({ offsetRem, rotationDeg }) => {
           return (
             <span
-              key={`${count}-${index}`}
+              key={`${count}-${offsetRem}-${rotationDeg}`}
               className="poker-hidden-card"
               style={
                 {
