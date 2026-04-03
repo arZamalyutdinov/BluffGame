@@ -114,7 +114,8 @@ export const enOrkishCatalog = {
     claimSetPace: (name: string) => `${name} set da pace.`,
     hostPausedClock: 'Da warboss paused da turn clock.',
     matchWinner: 'Scrap winner',
-    matchClosed: 'Da table is closed till da warboss sends everyone back ta lobby.',
+    matchClosed:
+      'Da table is closed till da warboss sends everyone back ta lobby.',
     closeClaimBuilder: 'Shut claim mekshop',
     selectedClaim: (label: string) => `Picked: ${label}`,
     strongerClaimPrompt: 'Pick a stronger claim than da one on da table.',
@@ -236,8 +237,7 @@ export const enOrkishCatalog = {
     loserEliminated: (name: string) => `${name} is outta da scrap.`,
     timeoutNote: (claimLabel: string) =>
       `Da table claim stayed at ${claimLabel} when da clock ran dry.`,
-    timeoutOpeningNote:
-      'Da clock ran dry before any openin claim got shouted.',
+    timeoutOpeningNote: 'Da clock ran dry before any openin claim got shouted.',
     timeoutNoValidation: 'Timeout ends da round without validatin da claim.',
   },
   cards: {
