@@ -129,7 +129,11 @@ React is the right choice for the browser client, but the authoritative game ser
 11. The server starts an authoritative timer for the active turn.
 12. Each next active player clockwise either raises the claim or checks it before that timer expires.
 13. A check reveals all round cards, the server evaluates the exact spoken claim according to the room's selected showdown-draw rule, and the loser takes a penalty card for future rounds or is eliminated.
-14. If the timer expires first, the active player loses the round automatically and the server applies the same penalty progression.
+14. If the timer expires first and a previous claim exists, the server
+    automatically checks that claim on behalf of the timed-out player. If the
+    timer expires on the opening turn before any claim exists, the active
+    player loses the round automatically and the server applies the normal
+    penalty progression.
 15. Eliminated players remain in the room as spectators. They leave the active
     seat ring when the next live round begins, and eliminated human viewers may
     privately toggle live-card reveal for themselves.

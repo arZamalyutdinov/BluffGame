@@ -19,12 +19,14 @@ import {
 import { type LocaleCatalog, enCatalog } from './en.js';
 import { enOrkishCatalog } from './enOrkish.js';
 import { ruCatalog } from './ru.js';
+import { ruCampCatalog } from './ruCamp.js';
 import { ruFenyaCatalog } from './ruFenya.js';
 
 export const SUPPORTED_LOCALES = [
   'en',
   'en-x-orkish',
   'ru',
+  'ru-x-camp',
   'ru-x-fenya',
 ] as const;
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
@@ -35,6 +37,7 @@ const LOCALE_CATALOGS: Record<LocaleCode, LocaleCatalog> = {
   en: enCatalog,
   'en-x-orkish': enOrkishCatalog,
   ru: ruCatalog,
+  'ru-x-camp': ruCampCatalog,
   'ru-x-fenya': ruFenyaCatalog,
 };
 

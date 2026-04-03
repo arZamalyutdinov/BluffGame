@@ -42,6 +42,7 @@ describe('App localization shell', () => {
     expect(homeMarkup).toContain('aria-label="Language"');
     expect(homeMarkup).toContain('<option value="en"');
     expect(homeMarkup).toContain('<option value="ru"');
+    expect(homeMarkup).toContain('<option value="ru-x-camp"');
     expect(homeMarkup).toContain('<option value="ru-x-fenya"');
     expect(roomMarkup).toContain('Snapshot room sync');
     expect(roomMarkup).toContain('aria-label="Language"');

@@ -93,11 +93,13 @@ the current round, not about a single player's private hand.
 
 ## Timeout Resolution
 
-1. If the active player's timer reaches zero before they act, that player loses
-   the round automatically.
-2. All active players reveal all of their cards for the round.
-3. No claim-validity check is performed for a timeout loss.
-4. Apply the same hand-size penalty or elimination rule as any other round loss.
+1. If the active player's timer reaches zero before they act and there is a
+   previous claim to answer, the server automatically checks that claim on the
+   timed-out player's behalf.
+2. That automatic check uses the same showdown rules as a manual check.
+3. If the active player's timer reaches zero before an opening claim exists,
+   that player loses the round automatically.
+4. Opening-turn timeout losses do not perform any claim-validity check.
 5. Show a non-dismissible result sequence for the revealed hands.
 6. After the reveal animation finishes, keep that result sequence visible for
    an additional `5` seconds.
@@ -138,8 +140,8 @@ the current round, not about a single player's private hand.
 
 ## Penalties and Elimination
 
-- A player who loses a showdown or times out increases their `handSize` by `1`
-  for future rounds.
+- A player who loses a showdown or an opening-turn timeout increases their
+  `handSize` by `1` for future rounds.
 - If that player already had `eliminationHandSize` cards, they are eliminated
   instead of moving higher.
 - Non-losing players keep the same `handSize`.

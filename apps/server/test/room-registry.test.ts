@@ -304,6 +304,119 @@ describe('RoomRegistry', () => {
     );
   });
 
+  it('auto-checks the last claim when the response turn times out', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+
+    await registry.updateRoomSettings(host.roomCode, host.playerId, {
+      ...DEFAULT_ROOM_SETTINGS,
+      turnTimeLimitSeconds: 15,
+    });
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.setReady(host.roomCode, guest.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+    const opening = await advanceThroughDealing(
+      registry,
+      host.roomCode,
+      host.playerId,
+    );
+    const claimantPlayerId = opening.match?.currentTurnPlayerId;
+    const timedOutPlayerId =
+      claimantPlayerId === host.playerId ? guest.playerId : host.playerId;
+    const room = registry.getRoom(host.roomCode);
+
+    expect(claimantPlayerId).toBeTruthy();
+    expect(room?.match).toBeTruthy();
+
+    if (!claimantPlayerId || !room?.match) {
+      throw new Error('Expected an active match with an opening claimant.');
+    }
+
+    room.match.round.handsByPlayerId[claimantPlayerId] = [
+      createCard(14, 'spades'),
+    ];
+    room.match.round.handsByPlayerId[timedOutPlayerId] = [
+      createCard(13, 'hearts'),
+    ];
+
+    await registry.submitClaim(host.roomCode, claimantPlayerId, 'pair:14');
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const afterTimeout = registry.buildSnapshot(host.roomCode, host.playerId);
+    const claimantPlayer = afterTimeout.players.find(
+      (player) => player.playerId === claimantPlayerId,
+    );
+    const timedOutPlayer = afterTimeout.players.find(
+      (player) => player.playerId === timedOutPlayerId,
+    );
+
+    expect(afterTimeout.match?.phase).toBe('showing-result');
+    expect(afterTimeout.match?.timeout).toBeUndefined();
+    expect(afterTimeout.match?.showdown?.challengerPlayerId).toBe(
+      timedOutPlayerId,
+    );
+    expect(afterTimeout.match?.showdown?.loserPlayerId).toBe(claimantPlayerId);
+    expect(afterTimeout.match?.showdown?.claimWasValid).toBe(false);
+    expect(afterTimeout.match?.showdown?.startedAtMs).toBe(Date.now());
+    expect(claimantPlayer?.handSize).toBe(2);
+    expect(timedOutPlayer?.handSize).toBe(1);
+  });
+
+  it('lets a timed-out player lose an automatic check when the claim is valid', async () => {
+    const registry = new RoomRegistry();
+    const host = registry.createRoom('Host');
+    const guest = await registry.joinRoom(host.roomCode, 'Guest');
+
+    await registry.updateRoomSettings(host.roomCode, host.playerId, {
+      ...DEFAULT_ROOM_SETTINGS,
+      turnTimeLimitSeconds: 15,
+    });
+    await registry.setReady(host.roomCode, host.playerId, true);
+    await registry.setReady(host.roomCode, guest.playerId, true);
+    await registry.startMatch(host.roomCode, host.playerId);
+    const opening = await advanceThroughDealing(
+      registry,
+      host.roomCode,
+      host.playerId,
+    );
+    const claimantPlayerId = opening.match?.currentTurnPlayerId;
+    const timedOutPlayerId =
+      claimantPlayerId === host.playerId ? guest.playerId : host.playerId;
+    const room = registry.getRoom(host.roomCode);
+
+    expect(claimantPlayerId).toBeTruthy();
+    expect(room?.match).toBeTruthy();
+
+    if (!claimantPlayerId || !room?.match) {
+      throw new Error('Expected an active match with an opening claimant.');
+    }
+
+    room.match.round.handsByPlayerId[claimantPlayerId] = [
+      createCard(14, 'spades'),
+    ];
+    room.match.round.handsByPlayerId[timedOutPlayerId] = [
+      createCard(14, 'hearts'),
+    ];
+
+    await registry.submitClaim(host.roomCode, claimantPlayerId, 'pair:14');
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    const afterTimeout = registry.buildSnapshot(host.roomCode, host.playerId);
+    const timedOutPlayer = afterTimeout.players.find(
+      (player) => player.playerId === timedOutPlayerId,
+    );
+
+    expect(afterTimeout.match?.phase).toBe('showing-result');
+    expect(afterTimeout.match?.timeout).toBeUndefined();
+    expect(afterTimeout.match?.showdown?.challengerPlayerId).toBe(
+      timedOutPlayerId,
+    );
+    expect(afterTimeout.match?.showdown?.loserPlayerId).toBe(timedOutPlayerId);
+    expect(afterTimeout.match?.showdown?.claimWasValid).toBe(true);
+    expect(timedOutPlayer?.handSize).toBe(2);
+  });
+
   it('holds showdown results on screen before starting the next round', async () => {
     const registry = new RoomRegistry();
     const host = registry.createRoom('Host');
