@@ -13,7 +13,7 @@ import {
 } from '@bluff-game/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { TableView } from './TableView.js';
+import { TableView, shouldPlaySelfTurnRing } from './TableView.js';
 
 function buildPairClaim(
   rank: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 = 10,
@@ -412,6 +412,114 @@ describe('TableView match fixtures', () => {
     expect(pausedMarkup).toContain('Paused');
     expect(criticalMarkup).toContain('Critical');
     expect(criticalMarkup).toContain('00:08');
+  });
+
+  it('only plays the turn ring on a live handoff to the local player', () => {
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p2',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p2',
+        currentTurnPlayerId: 'p3',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: null,
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p2',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: true,
+        isShowingResult: false,
+        hasWinner: false,
+        isActionableOnCurrentTurn: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p1',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: true,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p2',
+        currentTurnPlayerId: 'p3',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: true,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        isActionableOnCurrentTurn: false,
+      }),
+    ).toBe(false);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p1',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        wasActionableOnCurrentTurn: false,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldPlaySelfTurnRing({
+        previousTurnPlayerId: 'p1',
+        currentTurnPlayerId: 'p1',
+        selfPlayerId: 'p1',
+        resumedFromBlockedPhase: false,
+        isDealing: false,
+        isShowingResult: false,
+        hasWinner: false,
+        wasActionableOnCurrentTurn: true,
+        isActionableOnCurrentTurn: true,
+      }),
+    ).toBe(false);
   });
 
   it('renders showdown and timeout as on-table result stages from authoritative match state', () => {
