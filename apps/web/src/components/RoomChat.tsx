@@ -44,7 +44,7 @@ export function RoomChat({
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const latestMessageId = messages.at(-1)?.messageId;
-  const pickerEmojiData = locale === 'ru' ? russianEmojiData : null;
+  const pickerEmojiData = locale.startsWith('ru') ? russianEmojiData : null;
 
   useEffect(() => {
     if (messages.length === 0) {

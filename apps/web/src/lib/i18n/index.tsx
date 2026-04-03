@@ -18,14 +18,17 @@ import {
 
 import { type LocaleCatalog, enCatalog } from './en.js';
 import { ruCatalog } from './ru.js';
+import { ruFenyaCatalog } from './ruFenya.js';
 
-export const SUPPORTED_LOCALES = ['en', 'ru'] as const;
+export const SUPPORTED_LOCALES = ['en', 'ru', 'ru-x-fenya'] as const;
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
 
 const LOCALE_STORAGE_KEY = 'bluffgame/locale';
+const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
 const LOCALE_CATALOGS: Record<LocaleCode, LocaleCatalog> = {
   en: enCatalog,
   ru: ruCatalog,
+  'ru-x-fenya': ruFenyaCatalog,
 };
 
 function getStorage(): Storage | null {
@@ -35,15 +38,33 @@ function getStorage(): Storage | null {
 export function normalizeLocaleCode(
   value: string | null | undefined,
 ): LocaleCode {
-  const normalized = value?.trim().toLowerCase().split('-')[0];
-  return normalized === 'ru' ? 'ru' : 'en';
+  return findSupportedLocale(value) ?? 'en';
 }
 
 function findSupportedLocale(
   value: string | null | undefined,
 ): LocaleCode | null {
-  const normalized = value?.trim().toLowerCase().split('-')[0];
-  return normalized === 'ru' || normalized === 'en' ? normalized : null;
+  const normalized = value?.trim().toLowerCase();
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (SUPPORTED_LOCALE_SET.has(normalized)) {
+    return normalized as LocaleCode;
+  }
+
+  const primaryLanguage = normalized.split('-')[0];
+
+  if (primaryLanguage === 'ru') {
+    return 'ru';
+  }
+
+  if (primaryLanguage === 'en') {
+    return 'en';
+  }
+
+  return null;
 }
 
 export function detectBrowserLocale(
