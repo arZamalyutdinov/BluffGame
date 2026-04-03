@@ -17,16 +17,23 @@ import {
 } from 'react';
 
 import { type LocaleCatalog, enCatalog } from './en.js';
+import { enOrkishCatalog } from './enOrkish.js';
 import { ruCatalog } from './ru.js';
 import { ruFenyaCatalog } from './ruFenya.js';
 
-export const SUPPORTED_LOCALES = ['en', 'ru', 'ru-x-fenya'] as const;
+export const SUPPORTED_LOCALES = [
+  'en',
+  'en-x-orkish',
+  'ru',
+  'ru-x-fenya',
+] as const;
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
 
 const LOCALE_STORAGE_KEY = 'bluffgame/locale';
 const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
 const LOCALE_CATALOGS: Record<LocaleCode, LocaleCatalog> = {
   en: enCatalog,
+  'en-x-orkish': enOrkishCatalog,
   ru: ruCatalog,
   'ru-x-fenya': ruFenyaCatalog,
 };
