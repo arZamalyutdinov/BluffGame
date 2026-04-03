@@ -898,6 +898,41 @@ describe('TableView match fixtures', () => {
     expect(markup).toContain('JOKER');
   });
 
+  it('renders one hidden card back per opponent card beyond three cards', () => {
+    const markup = renderTable(
+      buildSnapshot(2, {
+        players: [
+          {
+            playerId: 'p1',
+            name: 'Captain Violet',
+            seatIndex: 0,
+            isHost: true,
+            isBot: false,
+            isReady: true,
+            connectionStatus: 'connected',
+            handSize: 3,
+            isEliminated: false,
+            cardCount: 3,
+          },
+          {
+            playerId: 'p2',
+            name: 'Player 2',
+            seatIndex: 1,
+            isHost: false,
+            isBot: false,
+            isReady: true,
+            connectionStatus: 'connected',
+            handSize: 5,
+            isEliminated: false,
+            cardCount: 5,
+          },
+        ],
+      }),
+    );
+
+    expect(markup.match(/class="poker-hidden-card"/g)?.length ?? 0).toBe(5);
+  });
+
   it('renders host kick controls and the self stop-playing action in the players drawer', () => {
     const markup = renderTable(
       buildSnapshot(4, {
