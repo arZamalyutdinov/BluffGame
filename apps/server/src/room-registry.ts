@@ -1619,11 +1619,15 @@ export class RoomRegistry {
 
     const totalCardsOnTable = currentRoundPlayers.reduce(
       (count, player) =>
-        count + (room.match?.round.handsByPlayerId[player.playerId]?.length ?? 0),
+        count +
+        (room.match?.round.handsByPlayerId[player.playerId]?.length ?? 0),
       0,
     );
 
-    return Math.max(1, Math.floor(totalCardsOnTable / currentRoundPlayers.length));
+    return Math.max(
+      1,
+      Math.floor(totalCardsOnTable / currentRoundPlayers.length),
+    );
   }
 
   private toCurrentRoundPenaltyPlayerStates(room: RoomState) {
@@ -1793,7 +1797,10 @@ export class RoomRegistry {
 
   private handleActiveMatchLeave(room: RoomState, removedPlayer: PlayerState) {
     const match = this.requireActiveMatch(room);
-    const wasInCurrentRound = isPlayerInRound(match.round, removedPlayer.playerId);
+    const wasInCurrentRound = isPlayerInRound(
+      match.round,
+      removedPlayer.playerId,
+    );
     const remainingActivePlayers = sortPlayersBySeat(room.players).filter(
       (player) => !player.isEliminated,
     );
@@ -1854,7 +1861,10 @@ export class RoomRegistry {
     );
 
     if (activePlayers.length > 0) {
-      return getNextActiveSeatIndex(this.toPenaltyPlayerStates(room), removedSeatIndex);
+      return getNextActiveSeatIndex(
+        this.toPenaltyPlayerStates(room),
+        removedSeatIndex,
+      );
     }
 
     return sortPlayersBySeat(room.players)[0]?.seatIndex;

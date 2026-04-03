@@ -103,8 +103,12 @@ describe('RoomRegistry', () => {
     await advanceThroughDealing(registry, host.roomCode, host.playerId);
 
     const room = registry.getRoom(host.roomCode);
-    const hostState = room?.players.find((player) => player.playerId === host.playerId);
-    const guestState = room?.players.find((player) => player.playerId === guest.playerId);
+    const hostState = room?.players.find(
+      (player) => player.playerId === host.playerId,
+    );
+    const guestState = room?.players.find(
+      (player) => player.playerId === guest.playerId,
+    );
 
     expect(room?.match).toBeTruthy();
     expect(hostState).toBeTruthy();
@@ -130,7 +134,10 @@ describe('RoomRegistry', () => {
 
     randomSpy.mockReturnValueOnce(0.3);
     const late = await registry.joinRoom(host.roomCode, 'Late');
-    const lateJoinSnapshot = registry.buildSnapshot(host.roomCode, late.playerId);
+    const lateJoinSnapshot = registry.buildSnapshot(
+      host.roomCode,
+      late.playerId,
+    );
     const lateJoinPlayer = lateJoinSnapshot.players.find(
       (player) => player.playerId === late.playerId,
     );
@@ -148,7 +155,10 @@ describe('RoomRegistry', () => {
 
     await vi.advanceTimersByTimeAsync(15_000);
 
-    const timeoutSnapshot = registry.buildSnapshot(host.roomCode, host.playerId);
+    const timeoutSnapshot = registry.buildSnapshot(
+      host.roomCode,
+      host.playerId,
+    );
     const nextRoundCardCount = timeoutSnapshot.players
       .filter((player) => !player.isEliminated)
       .reduce((count, player) => count + player.handSize, 0);
@@ -163,7 +173,10 @@ describe('RoomRegistry', () => {
 
     await vi.advanceTimersByTimeAsync(resultHoldMs);
 
-    const nextRoundSnapshot = registry.buildSnapshot(host.roomCode, late.playerId);
+    const nextRoundSnapshot = registry.buildSnapshot(
+      host.roomCode,
+      late.playerId,
+    );
     const lateNextRoundPlayer = nextRoundSnapshot.players.find(
       (player) => player.playerId === late.playerId,
     );
@@ -199,7 +212,9 @@ describe('RoomRegistry', () => {
     await advanceThroughDealing(registry, host.roomCode, host.playerId);
 
     const room = registry.getRoom(host.roomCode);
-    const guestState = room?.players.find((player) => player.playerId === guest.playerId);
+    const guestState = room?.players.find(
+      (player) => player.playerId === guest.playerId,
+    );
 
     expect(room?.match).toBeTruthy();
     expect(guestState).toBeTruthy();
@@ -786,7 +801,9 @@ describe('RoomRegistry', () => {
     await advanceThroughDealing(registry, host.roomCode, host.playerId);
 
     const room = registry.getRoom(host.roomCode);
-    const hostState = room?.players.find((player) => player.playerId === host.playerId);
+    const hostState = room?.players.find(
+      (player) => player.playerId === host.playerId,
+    );
 
     expect(room?.match).toBeTruthy();
     expect(hostState).toBeTruthy();
@@ -804,7 +821,9 @@ describe('RoomRegistry', () => {
 
     expect(snapshot.phase).toBe('in-match');
     expect(snapshot.hostPlayerId).toBe(guest.playerId);
-    expect(snapshot.players.find((player) => player.playerId === host.playerId)).toBeUndefined();
+    expect(
+      snapshot.players.find((player) => player.playerId === host.playerId),
+    ).toBeUndefined();
     expect(snapshot.match?.phase).toBe('dealing');
     expect(snapshot.match?.roundNumber).toBe(1);
     expect(snapshot.match?.starterPlayerId).toBe(guest.playerId);
@@ -833,7 +852,9 @@ describe('RoomRegistry', () => {
     await advanceThroughDealing(registry, host.roomCode, host.playerId);
 
     const room = registry.getRoom(host.roomCode);
-    const hostState = room?.players.find((player) => player.playerId === host.playerId);
+    const hostState = room?.players.find(
+      (player) => player.playerId === host.playerId,
+    );
 
     expect(room?.match).toBeTruthy();
     expect(hostState).toBeTruthy();
