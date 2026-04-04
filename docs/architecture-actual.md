@@ -254,7 +254,7 @@ While `room.phase === 'lobby'`:
 
 Room settings currently include:
 
-- `eliminationHandSize` in the range `2` to `6`
+- `eliminationHandSize` in the range `2` to `12`
 - `claimOrderPreset` with three supported presets
 - `flushRule` with `suit-only` and `suit-plus-rank`
 - `showdownDrawRule` with `revealed-only` and `draw-until-miss`
@@ -346,9 +346,12 @@ resolve beat, even though the server already knows the outcome.
 If the active player's timer reaches zero, `RoomRegistry` resolves the round
 without waiting for another socket command:
 
-1. the active player is marked as the round loser
-2. the shared penalty progression is applied
-3. active hands are revealed into a timeout summary snapshot
+1. if a previous claim exists, the timed-out player is treated as the
+   challenger and the normal showdown resolver runs
+2. if no previous claim exists yet, the active player is marked as the round
+   loser and the shared penalty progression is applied
+3. active hands are revealed into either a showdown summary or an opening-turn
+   timeout summary
 4. the match moves into `showing-result`
 5. after the shared display duration expires, the match either ends or the next
    round starts in `dealing`
@@ -409,7 +412,8 @@ Examples of what the shared rules package currently does:
 - whether the loser is eliminated
 - which top-deck cards were revealed during a draw-assisted showdown
 
-`applyRoundLoss` is the shared helper the server reuses for timeout losses.
+`applyRoundLoss` is the shared helper the server reuses for opening-turn
+timeout losses where no claim exists yet.
 
 The backend is still responsible for:
 

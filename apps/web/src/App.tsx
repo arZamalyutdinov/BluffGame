@@ -11,6 +11,7 @@ import {
 import { type Socket, io } from 'socket.io-client';
 
 import {
+  type RoomSession,
   type RoomSnapshot,
   commandRejectedEventSchema,
   roomSnapshotSchema,
@@ -374,7 +375,16 @@ function RoomPage() {
   const navigate = useNavigate();
   const params = useParams();
   const roomCode = params.roomCode?.toUpperCase() ?? '';
-  const session = useMemo(() => getRoomSession(roomCode), [roomCode]);
+  const [sessionOverride, setSessionOverride] = useState<RoomSession | null>(
+    null,
+  );
+  const session = useMemo(
+    () =>
+      sessionOverride && sessionOverride.roomCode === roomCode
+        ? sessionOverride
+        : getRoomSession(roomCode),
+    [roomCode, sessionOverride],
+  );
   const socketRef = useRef<Socket | null>(null);
   const [state, setState] = useState<RoomConnectionState>({
     snapshot: null,
@@ -384,6 +394,32 @@ function RoomPage() {
     serverClockOffsetMs: 0,
   });
   const [isTablePanelOpen, setIsTablePanelOpen] = useState(false);
+  const [joinDisplayName, setJoinDisplayName] = useState(getLastDisplayName());
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [joinError, setJoinError] = useState<AppErrorInfo | null>(null);
+
+  useEffect(() => {
+    setSessionOverride((current) =>
+      current?.roomCode === roomCode ? current : null,
+    );
+    setJoinError(null);
+  }, [roomCode]);
+
+  useEffect(() => {
+    const sessionRoomCode = session?.roomCode;
+
+    setState({
+      snapshot: null,
+      isConnected: false,
+      pendingCommand: null,
+      error: null,
+      serverClockOffsetMs: 0,
+    });
+
+    if (!sessionRoomCode) {
+      return;
+    }
+  }, [session]);
 
   useEffect(() => {
     if (!session) {
@@ -480,11 +516,67 @@ function RoomPage() {
     }
   }, [state.snapshot?.phase]);
 
+  async function handleMissingSessionJoin() {
+    try {
+      setIsJoiningRoom(true);
+      setJoinError(null);
+      const nextSession = await joinRoom(roomCode, joinDisplayName);
+      saveRoomSession(nextSession);
+      setSessionOverride(nextSession);
+
+      if (nextSession.roomCode !== roomCode) {
+        startTransition(() => {
+          navigate(`/rooms/${nextSession.roomCode}`, { replace: true });
+        });
+      }
+    } catch (error) {
+      setJoinError(
+        toAppErrorInfo(error, 'request-failed') ?? {
+          message: catalog.home.joinFallback,
+        },
+      );
+    } finally {
+      setIsJoiningRoom(false);
+    }
+  }
+
   if (!session) {
     return (
       <section className="panel status-panel">
         <h1>{catalog.room.missingSessionTitle}</h1>
         <p className="lead">{catalog.room.missingSessionLead(roomCode)}</p>
+        <div className="mx-auto mt-6 grid w-full max-w-md gap-4 text-left">
+          <label className="field-label">
+            {catalog.home.displayName}
+            <input
+              className="text-input"
+              value={joinDisplayName}
+              onChange={(event) => setJoinDisplayName(event.target.value)}
+              placeholder={catalog.home.displayNamePlaceholder}
+              autoComplete="name"
+              disabled={isJoiningRoom}
+            />
+          </label>
+
+          <label className="field-label">
+            {catalog.home.roomCode}
+            <input className="text-input" value={roomCode} readOnly disabled />
+          </label>
+
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => void handleMissingSessionJoin()}
+            disabled={!joinDisplayName.trim() || isJoiningRoom}
+          >
+            {isJoiningRoom ? catalog.home.joining : catalog.home.joinRoom}
+          </button>
+        </div>
+        {joinError ? (
+          <p className="mt-5 rounded-2xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+            {formatError(joinError) ?? joinError.message}
+          </p>
+        ) : null}
         <Link className="primary-button link-button" to="/">
           {catalog.text.backHome}
         </Link>

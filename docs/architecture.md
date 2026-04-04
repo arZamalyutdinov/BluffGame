@@ -123,13 +123,17 @@ React is the right choice for the browser client, but the authoritative game ser
    may remove lobby bots again if too many were added.
 6. The host starts the match once the minimum player count is met.
 7. The server selects a random starting seat for round 1.
-8. At the start of each round, the server shuffles the room's selected round deck and deals each active, non-spectating player a number of cards equal to their current `handSize`. Players who joined mid-round are only included once the next round is created. Rooms may use the standard 52-card deck or a 54-card deck with one red joker and one black joker.
+8. At the start of each round, the server shuffles enough copies of the room's selected round deck to cover every active, non-spectating player's current `handSize`, then deals those cards out. Players who joined mid-round are only included once the next round is created. Rooms may use standard 52-card deck copies or 54-card deck copies that each include one red joker and one black joker.
 9. The server enters an explicit `dealing` phase: the snapshot includes deal timing metadata, no gameplay actions are accepted, and no turn timer runs yet.
 10. After the authoritative deal window ends, the round starter makes the opening claim.
 11. The server starts an authoritative timer for the active turn.
 12. Each next active player clockwise either raises the claim or checks it before that timer expires.
 13. A check reveals all round cards, the server evaluates the exact spoken claim according to the room's selected showdown-draw rule, and the loser takes a penalty card for future rounds or is eliminated.
-14. If the timer expires first, the active player loses the round automatically and the server applies the same penalty progression.
+14. If the timer expires first and a previous claim exists, the server
+    automatically checks that claim on behalf of the timed-out player. If the
+    timer expires on the opening turn before any claim exists, the active
+    player loses the round automatically and the server applies the normal
+    penalty progression.
 15. Eliminated players remain in the room as spectators. They leave the active
     seat ring when the next live round begins, and eliminated human viewers may
     privately toggle live-card reveal for themselves.
@@ -336,7 +340,7 @@ The server may collapse some internal phases into simpler snapshots, but the dom
 ## Operational Assumptions for V1
 
 - Single-process server with in-memory rooms.
-- Max room size should stay small enough to fit one round deck comfortably; `2` to `8` players is the recommended v1 range even when the optional two jokers are enabled.
+- `2` to `8` players remains the recommended v1 room range. Round setup now stacks enough copies of the selected deck to cover late-match hand growth when needed.
 - Crash or deploy restarts wipe active rooms.
 - Room chat is ephemeral and exists only in the in-memory room state.
 - Disconnects keep the player's seat reserved and rely on session-token reconnect support; active matches do not auto-remove or auto-forfeit disconnected players in v1.

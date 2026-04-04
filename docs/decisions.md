@@ -18,7 +18,9 @@ Initial planning baseline recorded on March 14, 2026.
 - Skip database work, authentication, and social systems for the initial build.
 - Keep showdowns exact-claim based, but let the host choose between revealed-cards-only checks and a draw-until-miss review that uses the undealt round deck.
 - Keep room settings host-controlled and lobby-only in v1.
-- Ship with configurable elimination hand size in the safe range `2` to `6`.
+- Ship with configurable elimination hand size in the range `2` to `12`.
+- When late-match hand growth exceeds one selected deck, stack additional copies
+  of that same deck for the round instead of under-dealing players.
 - Ship with configurable turn time limits, with `60` seconds as the default.
 - Ship with three claim-order presets, with `flush below straight` as the default.
 - Ship with a host-selected flush rule toggle: classic suit-only flushes by default, with an optional suit-plus-rank variant that speaks a named suited card.

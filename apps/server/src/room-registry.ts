@@ -19,7 +19,7 @@ import {
   applyRoundLoss,
   calculateDealingDurationMs,
   calculateResolutionDisplayDurationMs,
-  createDeck,
+  createDeckShoe,
   dealCards,
   getDefaultAppErrorMessage,
   getNextActiveSeatIndex,
@@ -868,17 +868,19 @@ export class RoomRegistry {
     const activePlayers = sortPlayersBySeat(room.players).filter(
       (player) => !player.isEliminated,
     );
-    const shuffledDeck = shuffleDeck(createDeck(room.settings.jokerRule));
+    const totalCardCount = activePlayers.reduce(
+      (count, player) => count + player.handSize,
+      0,
+    );
+    const shuffledDeck = shuffleDeck(
+      createDeckShoe(totalCardCount, room.settings.jokerRule),
+    );
     const handsByPlayerId = dealCards(
       shuffledDeck,
       activePlayers.map((player) => ({
         playerId: player.playerId,
         count: player.handSize,
       })),
-    );
-    const totalCardCount = activePlayers.reduce(
-      (count, player) => count + player.handSize,
-      0,
     );
     const remainingDeck = shuffledDeck.slice(totalCardCount);
 
@@ -1388,6 +1390,19 @@ export class RoomRegistry {
       room,
       match.round.currentTurnSeatIndex,
     );
+    room.playerReadsById[timedOutPlayer.playerId] = {
+      ...(room.playerReadsById[timedOutPlayer.playerId] ?? createBotRead()),
+      timeouts:
+        (room.playerReadsById[timedOutPlayer.playerId]?.timeouts ?? 0) + 1,
+    };
+
+    if (match.round.lastClaim && match.round.lastClaimantPlayerId) {
+      this.resolveShowdownForChallenger(room, timedOutPlayer.playerId, {
+        startedAtMs: this.now(),
+      });
+      return true;
+    }
+
     const resolution = applyRoundLoss({
       loserPlayerId: timedOutPlayer.playerId,
       players: this.toCurrentRoundPenaltyPlayerStates(room),
@@ -1404,11 +1419,6 @@ export class RoomRegistry {
       room,
       match.round.handsByPlayerId,
     );
-    room.playerReadsById[timedOutPlayer.playerId] = {
-      ...(room.playerReadsById[timedOutPlayer.playerId] ?? createBotRead()),
-      timeouts:
-        (room.playerReadsById[timedOutPlayer.playerId]?.timeouts ?? 0) + 1,
-    };
     const remainingPlayers = room.players.filter(
       (player) => !player.isEliminated,
     );
@@ -2035,6 +2045,21 @@ export class RoomRegistry {
       throw new CommandError('no-claim-to-challenge');
     }
 
+    this.resolveShowdownForChallenger(room, challenger.playerId);
+  }
+
+  private resolveShowdownForChallenger(
+    room: RoomState,
+    challengerPlayerId: string,
+    options?: { startedAtMs?: number },
+  ) {
+    const match = this.requireActiveMatch(room);
+    const challenger = this.requirePlayer(room, challengerPlayerId);
+
+    if (!match.round.lastClaim || !match.round.lastClaimantPlayerId) {
+      throw new CommandError('no-claim-to-challenge');
+    }
+
     const resolution = resolveShowdown({
       claim: match.round.lastClaim,
       claimantPlayerId: match.round.lastClaimantPlayerId,
@@ -2080,7 +2105,7 @@ export class RoomRegistry {
       match.round.handsByPlayerId,
     );
     const showdownBase = {
-      startedAtMs: this.now(),
+      startedAtMs: options?.startedAtMs ?? this.now(),
       spokenClaim: match.round.lastClaim,
       claimantPlayerId: match.round.lastClaimantPlayerId,
       challengerPlayerId: challenger.playerId,

@@ -126,6 +126,22 @@ export function createDeck(jokerRule: JokerRule = DEFAULT_JOKER_RULE): Card[] {
   return deck;
 }
 
+export function createDeckShoe(
+  requiredCardCount: number,
+  jokerRule: JokerRule = DEFAULT_JOKER_RULE,
+): Card[] {
+  const safeRequiredCardCount = Math.max(0, Math.floor(requiredCardCount));
+
+  if (safeRequiredCardCount === 0) {
+    return [];
+  }
+
+  const deckSize = createDeck(jokerRule).length;
+  const deckCopies = Math.ceil(safeRequiredCardCount / deckSize);
+
+  return Array.from({ length: deckCopies }, () => createDeck(jokerRule)).flat();
+}
+
 export function shuffleDeck(deck: Card[], random = Math.random): Card[] {
   const next = [...deck];
 
@@ -183,7 +199,13 @@ export function dealCards(
   let cursor = 0;
 
   for (const request of requests) {
-    hands[request.playerId] = deck.slice(cursor, cursor + request.count);
+    const nextHand = deck.slice(cursor, cursor + request.count);
+
+    if (nextHand.length !== request.count) {
+      throw new Error('Not enough cards to satisfy deal requests.');
+    }
+
+    hands[request.playerId] = nextHand;
     cursor += request.count;
   }
 
