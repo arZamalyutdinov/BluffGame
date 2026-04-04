@@ -21,6 +21,7 @@ import { enOrkishCatalog } from './enOrkish.js';
 import { ruCatalog } from './ru.js';
 import { ruCampCatalog } from './ruCamp.js';
 import { ruFenyaCatalog } from './ruFenya.js';
+import { ruGachimuchiCatalog } from './ruGachimuchi.js';
 
 export const SUPPORTED_LOCALES = [
   'en',
@@ -28,6 +29,7 @@ export const SUPPORTED_LOCALES = [
   'ru',
   'ru-x-camp',
   'ru-x-fenya',
+  'ru-x-gachi',
 ] as const;
 export type LocaleCode = (typeof SUPPORTED_LOCALES)[number];
 
@@ -39,6 +41,7 @@ const LOCALE_CATALOGS: Record<LocaleCode, LocaleCatalog> = {
   ru: ruCatalog,
   'ru-x-camp': ruCampCatalog,
   'ru-x-fenya': ruFenyaCatalog,
+  'ru-x-gachi': ruGachimuchiCatalog,
 };
 
 function getStorage(): Storage | null {

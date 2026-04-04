@@ -59,6 +59,7 @@ describe('i18n helpers', () => {
     expect(detectBrowserLocale('ru-RU')).toBe('ru');
     expect(detectBrowserLocale('ru-x-camp')).toBe('ru-x-camp');
     expect(detectBrowserLocale('ru-x-fenya')).toBe('ru-x-fenya');
+    expect(detectBrowserLocale('ru-x-gachi')).toBe('ru-x-gachi');
     expect(detectBrowserLocale('en-US')).toBe('en');
     expect(detectBrowserLocale('fr-FR')).toBe('en');
     expect(detectBrowserLocale(['fr-FR', 'en-x-orkish'])).toBe('en-x-orkish');
@@ -92,6 +93,8 @@ describe('i18n helpers', () => {
     expect(getStoredLocale()).toBe('en-x-orkish');
     saveStoredLocale('ru-x-camp');
     expect(getStoredLocale()).toBe('ru-x-camp');
+    saveStoredLocale('ru-x-gachi');
+    expect(getStoredLocale()).toBe('ru-x-gachi');
     saveStoredLocale('ru-x-fenya');
     expect(getStoredLocale()).toBe('ru-x-fenya');
   });
@@ -117,6 +120,11 @@ describe('i18n helpers', () => {
         <LocaleProbe />
       </LocaleProvider>,
     );
+    const gachiMarkup = renderToStaticMarkup(
+      <LocaleProvider initialLocale="ru-x-gachi">
+        <LocaleProbe />
+      </LocaleProvider>,
+    );
     const orkishMarkup = renderToStaticMarkup(
       <LocaleProvider initialLocale="en-x-orkish">
         <LocaleProbe />
@@ -135,12 +143,15 @@ describe('i18n helpers', () => {
     expect(englishMarkup).toContain('RJ/JOKER');
     expect(orkishMarkup).toContain('heartz flush wiv ace');
     expect(orkishMarkup).toContain('pair o Qs');
-    expect(orkishMarkup).toContain('Bluff got krumped');
+    expect(orkishMarkup).toContain('Sneaky bluff got krumped');
     expect(orkishMarkup).toContain('>Q<');
     expect(orkishMarkup).toContain('RJ/JOKER');
     expect(campMarkup).toContain('glamour flush червы с А');
     expect(campMarkup).toContain('pair Д, darling');
     expect(campMarkup).toContain('Tea spilled');
+    expect(gachiMarkup).toContain('♂gachi flush♂ червы с А');
+    expect(gachiMarkup).toContain('pair Д, brother');
+    expect(gachiMarkup).toContain('♂Wrong version♂');
     expect(prisonMarkup).toContain('флеш червы с А');
     expect(prisonMarkup).toContain('пара Д');
     expect(prisonMarkup).toContain('Вафлер вскрылся');
@@ -148,6 +159,7 @@ describe('i18n helpers', () => {
     expect(englishMarkup).toContain('PM');
     expect(orkishMarkup).toContain('PM');
     expect(campMarkup).not.toContain('PM');
+    expect(gachiMarkup).not.toContain('PM');
     expect(prisonMarkup).not.toContain('PM');
   });
 });
